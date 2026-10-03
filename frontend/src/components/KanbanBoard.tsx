@@ -8,6 +8,7 @@ import {
   useSensor,
   useSensors,
   closestCorners,
+  pointerWithin,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -68,6 +69,14 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
   );
 
   const cardsById = useMemo(() => board?.cards ?? {}, [board?.cards]);
+
+  const collisionDetectionStrategy = (args: Parameters<typeof closestCorners>[0]) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) {
+      return pointerCollisions;
+    }
+    return closestCorners(args);
+  };
 
   const persistBoard = (nextBoard: BoardData) => {
     const saveId = latestSaveId.current + 1;
@@ -251,7 +260,7 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
 
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCorners}
+          collisionDetection={collisionDetectionStrategy}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >

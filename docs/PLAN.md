@@ -10,7 +10,7 @@ This plan is execution-oriented. Each part contains:
 ### Checklist
 - [x] Expand [PLAN.md](./PLAN.md) with detailed substeps, tests, and success criteria for all parts.
 - [x] Create [frontend/AGENTS.md](../frontend/AGENTS.md) documenting the existing frontend code structure and behavior.
-- [ ] User review and explicit approval of this plan before implementation work starts.
+- [x] User review and explicit approval of this plan before implementation work starts.
 
 ### Validation tests
 - Manual review that all 10 parts include checklist, tests, and success criteria.
@@ -209,6 +209,17 @@ This plan is execution-oriented. Each part contains:
 - Part 5 must be approved before Part 6 persistence implementation.
 - Part 8 must be complete before Parts 9-10.
 - Part 6 and Part 7 are both required before meaningful Part 10 validation.
+
+## Confirmed design decisions implemented through Part 7
+
+- Frontend delivery: Next.js app is statically exported and served by FastAPI from `/`.
+- Authentication model (MVP): client-side login with hardcoded credentials (`user` / `password`), with frontend session state in localStorage.
+- Backend board authorization contract: board API requires `X-User` header; current MVP board operations target `user`.
+- Persistence model: SQLite with one board per user (`UNIQUE(user_id)`), board stored as JSON with `schemaVersion: 1`.
+- Startup bootstrap: backend auto-creates DB file/schema, ensures default user and default board exist.
+- Frontend persistence strategy: load board via `GET /api/board` and persist edits via `PUT /api/board` for rename/add/delete/move.
+- UX state decisions: explicit loading, saving, error, and retry states for board fetch/save.
+- Drag-and-drop collision behavior: `pointerWithin` is used first (with `closestCorners` fallback) to support dropping cards into empty columns reliably.
 
 ### Quality gates per part
 - [ ] Relevant tests for the part pass.
