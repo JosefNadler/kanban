@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { KanbanBoard } from "@/components/KanbanBoard";
 
 const AUTH_STORAGE_KEY = "pm-authenticated";
@@ -8,21 +8,30 @@ const USER_STORAGE_KEY = "pm-username";
 const VALID_USERNAME = "user";
 const VALID_PASSWORD = "password";
 
+const subscribeToSession = (onChange: () => void) => {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+};
+
+const getSessionUser = () =>
+  localStorage.getItem(AUTH_STORAGE_KEY) === "true"
+    ? localStorage.getItem(USER_STORAGE_KEY) ?? VALID_USERNAME
+    : null;
+
+// undefined means the session has not been read yet (static prerender and hydration).
+const getServerSessionUser = () => undefined;
+
+const notifySessionChange = () => window.dispatchEvent(new StorageEvent("storage"));
+
 export const AppShell = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
-  const [isReady, setIsReady] = useState(false);
-
-  useEffect(() => {
-    const authenticated = localStorage.getItem(AUTH_STORAGE_KEY) === "true";
-    const storedUser = localStorage.getItem(USER_STORAGE_KEY);
-    setIsAuthenticated(authenticated);
-    setCurrentUser(authenticated ? storedUser ?? VALID_USERNAME : null);
-    setIsReady(true);
-  }, []);
+  const currentUser = useSyncExternalStore(
+    subscribeToSession,
+    getSessionUser,
+    getServerSessionUser
+  );
 
   const handleLogin = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -30,8 +39,7 @@ export const AppShell = () => {
     if (username === VALID_USERNAME && password === VALID_PASSWORD) {
       localStorage.setItem(AUTH_STORAGE_KEY, "true");
       localStorage.setItem(USER_STORAGE_KEY, username);
-      setIsAuthenticated(true);
-      setCurrentUser(username);
+      notifySessionChange();
       setUsername("");
       setPassword("");
       setError("");
@@ -44,16 +52,15 @@ export const AppShell = () => {
   const handleLogout = () => {
     localStorage.removeItem(AUTH_STORAGE_KEY);
     localStorage.removeItem(USER_STORAGE_KEY);
-    setIsAuthenticated(false);
-    setCurrentUser(null);
+    notifySessionChange();
     setError("");
   };
 
-  if (!isReady) {
+  if (currentUser === undefined) {
     return null;
   }
 
-  if (!isAuthenticated) {
+  if (currentUser === null) {
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-lg items-center px-6">
         <section className="w-full rounded-3xl border border-[var(--stroke)] bg-white p-8 shadow-[var(--shadow)]">
@@ -119,7 +126,7 @@ export const AppShell = () => {
           Log out
         </button>
       </div>
-      {currentUser ? <KanbanBoard username={currentUser} /> : null}
+      <KanbanBoard username={currentUser} />
     </>
   );
 };
