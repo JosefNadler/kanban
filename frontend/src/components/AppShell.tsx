@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { KanbanBoard } from "@/components/KanbanBoard";
 
 const AUTH_STORAGE_KEY = "pm-authenticated";
+const USER_STORAGE_KEY = "pm-username";
 const VALID_USERNAME = "user";
 const VALID_PASSWORD = "password";
 
@@ -12,10 +13,14 @@ export const AppShell = () => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    setIsAuthenticated(localStorage.getItem(AUTH_STORAGE_KEY) === "true");
+    const authenticated = localStorage.getItem(AUTH_STORAGE_KEY) === "true";
+    const storedUser = localStorage.getItem(USER_STORAGE_KEY);
+    setIsAuthenticated(authenticated);
+    setCurrentUser(authenticated ? storedUser ?? VALID_USERNAME : null);
     setIsReady(true);
   }, []);
 
@@ -24,7 +29,9 @@ export const AppShell = () => {
 
     if (username === VALID_USERNAME && password === VALID_PASSWORD) {
       localStorage.setItem(AUTH_STORAGE_KEY, "true");
+      localStorage.setItem(USER_STORAGE_KEY, username);
       setIsAuthenticated(true);
+      setCurrentUser(username);
       setUsername("");
       setPassword("");
       setError("");
@@ -36,7 +43,9 @@ export const AppShell = () => {
 
   const handleLogout = () => {
     localStorage.removeItem(AUTH_STORAGE_KEY);
+    localStorage.removeItem(USER_STORAGE_KEY);
     setIsAuthenticated(false);
+    setCurrentUser(null);
     setError("");
   };
 
@@ -110,7 +119,7 @@ export const AppShell = () => {
           Log out
         </button>
       </div>
-      <KanbanBoard />
+      {currentUser ? <KanbanBoard username={currentUser} /> : null}
     </>
   );
 };

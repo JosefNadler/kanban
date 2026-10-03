@@ -1,6 +1,28 @@
 import { expect, test, type Page } from "@playwright/test";
+import boardFixture from "../src/lib/kanban-fixture.json";
+
+const createApiState = () => structuredClone(boardFixture);
+
+const mockBoardApi = async (page: Page) => {
+  let board = createApiState();
+  await page.route("**/api/board", async (route) => {
+    const request = route.request();
+    if (request.method() === "GET") {
+      await route.fulfill({ status: 200, json: board });
+      return;
+    }
+    if (request.method() === "PUT") {
+      const nextBoard = request.postDataJSON();
+      board = nextBoard;
+      await route.fulfill({ status: 200, json: board });
+      return;
+    }
+    await route.fulfill({ status: 405, json: { detail: "Method not allowed" } });
+  });
+};
 
 const login = async (page: Page) => {
+  await mockBoardApi(page);
   await page.getByLabel("Username").fill("user");
   await page.getByLabel("Password").fill("password");
   await page.getByRole("button", { name: "Sign in" }).click();

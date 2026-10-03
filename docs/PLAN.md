@@ -84,11 +84,11 @@ This plan is execution-oriented. Each part contains:
 ## Part 5: Database modeling and sign-off
 
 ### Checklist
-- [ ] Propose SQLite schema for users and one board per user.
-- [ ] Model board content as JSON payload with clear versionable shape.
-- [ ] Document schema, constraints, and migration strategy in `docs/`.
-- [ ] Define how DB file is created if missing.
-- [ ] Request and obtain user sign-off before backend persistence implementation.
+- [x] Propose SQLite schema for users and one board per user.
+- [x] Model board content as JSON payload with clear versionable shape.
+- [x] Document schema, constraints, and migration strategy in `docs/`.
+- [x] Define how DB file is created if missing.
+- [x] Request and obtain user sign-off before backend persistence implementation.
 
 ### Validation tests
 - Review SQL/schema against requirements:
@@ -104,11 +104,11 @@ This plan is execution-oriented. Each part contains:
 ## Part 6: Backend Kanban API + persistence
 
 ### Checklist
-- [ ] Implement DB initialization on startup if DB does not exist.
-- [ ] Add backend routes to read and update board for authenticated user.
-- [ ] Add backend validation for payload shape and error responses.
-- [ ] Ensure one-board-per-user behavior is enforced.
-- [ ] Add backend unit tests for success and failure cases.
+- [x] Implement DB initialization on startup if DB does not exist.
+- [x] Add backend routes to read and update board for authenticated user.
+- [x] Add backend validation for payload shape and error responses.
+- [x] Ensure one-board-per-user behavior is enforced.
+- [x] Add backend unit tests for success and failure cases.
 
 ### Validation tests
 - Backend test suite covering:
@@ -125,11 +125,11 @@ This plan is execution-oriented. Each part contains:
 ## Part 7: Frontend + backend persistence wiring
 
 ### Checklist
-- [ ] Replace frontend in-memory board state bootstrap with backend fetch.
-- [ ] Send board updates to backend for rename/add/delete/move operations.
-- [ ] Handle loading, save-in-progress, and error states clearly.
-- [ ] Keep UX responsive while preserving consistency with persisted state.
-- [ ] Add frontend integration tests for persisted behavior.
+- [x] Replace frontend in-memory board state bootstrap with backend fetch.
+- [x] Send board updates to backend for rename/add/delete/move operations.
+- [x] Handle loading, save-in-progress, and error states clearly.
+- [x] Keep UX responsive while preserving consistency with persisted state.
+- [x] Add frontend integration tests for persisted behavior.
 
 ### Validation tests
 - Unit/integration tests for API client and state synchronization.

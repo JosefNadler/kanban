@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -13,11 +13,53 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
-import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
+import { updateBoard, fetchBoard } from "@/lib/boardApi";
+import { createId, moveCard, type BoardData } from "@/lib/kanban";
 
-export const KanbanBoard = () => {
-  const [board, setBoard] = useState<BoardData>(() => initialData);
+type KanbanBoardProps = {
+  username: string;
+};
+
+export const KanbanBoard = ({ username }: KanbanBoardProps) => {
+  const [board, setBoard] = useState<BoardData | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const latestSaveId = useRef(0);
+
+  useEffect(() => {
+    let isCancelled = false;
+    setIsLoading(true);
+    setError(null);
+
+    fetchBoard(username)
+      .then((payload) => {
+        if (!isCancelled) {
+          setBoard(payload);
+        }
+      })
+      .catch((loadError) => {
+        if (!isCancelled) {
+          const message =
+            loadError instanceof Error
+              ? loadError.message
+              : "Failed to load board.";
+          setError(message);
+          setBoard(null);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [username, reloadToken]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -25,7 +67,46 @@ export const KanbanBoard = () => {
     })
   );
 
-  const cardsById = useMemo(() => board.cards, [board.cards]);
+  const cardsById = useMemo(() => board?.cards ?? {}, [board?.cards]);
+
+  const persistBoard = (nextBoard: BoardData) => {
+    const saveId = latestSaveId.current + 1;
+    latestSaveId.current = saveId;
+    setIsSaving(true);
+    setError(null);
+
+    updateBoard(username, nextBoard)
+      .then((savedBoard) => {
+        if (saveId !== latestSaveId.current) {
+          return;
+        }
+        setBoard(savedBoard);
+      })
+      .catch((saveError) => {
+        if (saveId !== latestSaveId.current) {
+          return;
+        }
+        const message =
+          saveError instanceof Error
+            ? saveError.message
+            : "Could not save board changes.";
+        setError(message);
+      })
+      .finally(() => {
+        if (saveId === latestSaveId.current) {
+          setIsSaving(false);
+        }
+      });
+  };
+
+  const applyBoardChange = (updateFn: (current: BoardData) => BoardData) => {
+    if (!board) {
+      return;
+    }
+    const nextBoard = updateFn(board);
+    setBoard(nextBoard);
+    persistBoard(nextBoard);
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
@@ -39,14 +120,14 @@ export const KanbanBoard = () => {
       return;
     }
 
-    setBoard((prev) => ({
+    applyBoardChange((prev) => ({
       ...prev,
       columns: moveCard(prev.columns, active.id as string, over.id as string),
     }));
   };
 
   const handleRenameColumn = (columnId: string, title: string) => {
-    setBoard((prev) => ({
+    applyBoardChange((prev) => ({
       ...prev,
       columns: prev.columns.map((column) =>
         column.id === columnId ? { ...column, title } : column
@@ -56,7 +137,7 @@ export const KanbanBoard = () => {
 
   const handleAddCard = (columnId: string, title: string, details: string) => {
     const id = createId("card");
-    setBoard((prev) => ({
+    applyBoardChange((prev) => ({
       ...prev,
       cards: {
         ...prev.cards,
@@ -71,7 +152,7 @@ export const KanbanBoard = () => {
   };
 
   const handleDeleteCard = (columnId: string, cardId: string) => {
-    setBoard((prev) => {
+    applyBoardChange((prev) => {
       return {
         ...prev,
         cards: Object.fromEntries(
@@ -88,6 +169,35 @@ export const KanbanBoard = () => {
       };
     });
   };
+
+  if (isLoading) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6">
+        <p className="text-sm font-semibold uppercase tracking-[0.1em] text-[var(--gray-text)]">
+          Loading board...
+        </p>
+      </main>
+    );
+  }
+
+  if (!board) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-6">
+        <div className="rounded-2xl border border-[var(--stroke)] bg-white p-8 text-center shadow-[var(--shadow)]">
+          <p className="text-sm font-semibold text-[var(--navy-dark)]">
+            {error ?? "Board is unavailable."}
+          </p>
+          <button
+            type="button"
+            onClick={() => setReloadToken((current) => current + 1)}
+            className="mt-4 rounded-full bg-[var(--secondary-purple)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:brightness-110"
+          >
+            Retry
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
@@ -118,8 +228,14 @@ export const KanbanBoard = () => {
               <p className="mt-2 text-lg font-semibold text-[var(--primary-blue)]">
                 One board. Five columns. Zero clutter.
               </p>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
+                {isSaving ? "Saving..." : "All changes saved"}
+              </p>
             </div>
           </div>
+          {error ? (
+            <p className="text-sm font-semibold text-red-700">{error}</p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-4">
             {board.columns.map((column) => (
               <div

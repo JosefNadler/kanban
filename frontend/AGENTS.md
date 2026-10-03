@@ -24,10 +24,12 @@ This document describes the current frontend-only implementation in [frontend/](
   - localStorage-backed auth session (`pm-authenticated`)
   - logout action that clears auth and returns to sign-in
 - [src/components/KanbanBoard.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanBoard.tsx)
-  - owns in-memory board state
+  - loads board state from backend API (`GET /api/board`)
+  - persists board updates to backend API (`PUT /api/board`)
   - wires drag-and-drop context
   - handles column rename, add card, delete card, and move card
   - renders five columns from board data
+  - displays loading, saving, and error states
 - [src/components/KanbanColumn.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanColumn.tsx)
   - droppable column surface
   - editable column title input
@@ -49,14 +51,19 @@ This document describes the current frontend-only implementation in [frontend/](
   - provides seeded `initialData` with 5 columns and sample cards
   - provides `moveCard` helper used by drag-and-drop handlers
   - provides `createId` helper for new card IDs
+- [src/lib/boardApi.ts](/home/josef/Projects/pm/frontend/src/lib/boardApi.ts)
+  - wraps `/api/board` fetch and update calls
+  - sets required `X-User` header
+  - surfaces backend error details
 
-Current persistence behavior: none. The board is reset from `initialData` on every page reload.
+Current persistence behavior: board changes are persisted via backend API and survive page refresh.
 
 ## Tests
 
 - Unit/component tests:
   - [src/components/AppShell.test.tsx](/home/josef/Projects/pm/frontend/src/components/AppShell.test.tsx)
   - [src/components/KanbanBoard.test.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanBoard.test.tsx)
+  - [src/lib/boardApi.test.ts](/home/josef/Projects/pm/frontend/src/lib/boardApi.test.ts)
   - [src/lib/kanban.test.ts](/home/josef/Projects/pm/frontend/src/lib/kanban.test.ts)
 - Test setup:
   - [src/test/setup.ts](/home/josef/Projects/pm/frontend/src/test/setup.ts)
