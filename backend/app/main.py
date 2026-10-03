@@ -2,9 +2,11 @@ import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Generator
+import json
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 
 from app.db import (
     connect_db,
@@ -14,7 +16,8 @@ from app.db import (
     initialize_database,
     save_board_for_user,
 )
-from app.schemas import BoardPayload
+from app.openrouter import OPENROUTER_MODEL, OpenRouterClient, OpenRouterConfigError, OpenRouterRequestError
+from app.schemas import AIChatRequest, AIChatResponse, AIDiagnosticRequest, AIDiagnosticResponse, BoardPayload
 
 
 @asynccontextmanager
@@ -49,6 +52,33 @@ def get_authenticated_user_id(
     return user_id
 
 
+def get_openrouter_client() -> OpenRouterClient:
+    try:
+        return OpenRouterClient()
+    except OpenRouterConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def build_chat_messages(
+    prompt: str,
+    history: list[dict[str, str]],
+    board: BoardPayload,
+) -> list[dict[str, str]]:
+    board_json = json.dumps(board.model_dump(by_alias=True))
+    system_message = (
+        "You are assisting with a kanban board update workflow. "
+        "Return valid JSON only with shape: "
+        '{"message":"string","boardUpdate":null|BoardPayload}. '
+        "If proposing a board update, it must keep schemaVersion=1 and keep card references valid. "
+        f"Current board JSON: {board_json}"
+    )
+
+    messages: list[dict[str, str]] = [{"role": "system", "content": system_message}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": prompt})
+    return messages
+
+
 @app.get("/", include_in_schema=False)
 def serve_root() -> FileResponse:
     return FileResponse(INDEX_HTML)
@@ -79,6 +109,58 @@ def update_board(
 ) -> dict:
     save_board_for_user(connection, user_id, board)
     return board.model_dump(by_alias=True)
+
+
+@app.post("/api/ai/diagnostic", response_model=AIDiagnosticResponse)
+def ai_diagnostic(
+    body: AIDiagnosticRequest,
+    _: int = Depends(get_authenticated_user_id),
+    openrouter_client: OpenRouterClient = Depends(get_openrouter_client),
+) -> AIDiagnosticResponse:
+    try:
+        output = openrouter_client.chat(body.prompt)
+    except OpenRouterRequestError as exc:
+        raise HTTPException(status_code=502, detail=exc.message) from exc
+
+    return AIDiagnosticResponse(model=OPENROUTER_MODEL, output=output)
+
+
+@app.post("/api/ai/chat", response_model=AIChatResponse)
+def ai_chat(
+    body: AIChatRequest,
+    user_id: int = Depends(get_authenticated_user_id),
+    connection: sqlite3.Connection = Depends(get_connection),
+    openrouter_client: OpenRouterClient = Depends(get_openrouter_client),
+) -> AIChatResponse:
+    board = get_board_for_user(connection, user_id)
+    if board is None:
+        raise HTTPException(status_code=404, detail="Board not found for user.")
+
+    history = [message.model_dump() for message in body.history]
+    messages = build_chat_messages(body.prompt, history, board)
+
+    try:
+        raw_output = openrouter_client.chat_messages(messages)
+    except OpenRouterRequestError as exc:
+        raise HTTPException(status_code=502, detail=exc.message) from exc
+
+    try:
+        parsed_output = json.loads(raw_output)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="Model returned non-JSON output.") from exc
+
+    try:
+        response_payload = AIChatResponse.model_validate(parsed_output)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Model output did not match required schema: {exc.errors()}",
+        ) from exc
+
+    if response_payload.board_update is not None:
+        save_board_for_user(connection, user_id, response_payload.board_update)
+
+    return response_payload
 
 
 @app.get("/{full_path:path}", include_in_schema=False)

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -48,3 +50,29 @@ class BoardPayload(BaseModel):
             raise ValueError("Every card must be referenced exactly once in columns.")
 
         return self
+
+
+class AIDiagnosticRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+
+
+class AIDiagnosticResponse(BaseModel):
+    model: str
+    output: str
+
+
+class AIHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1)
+
+
+class AIChatRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    history: list[AIHistoryMessage] = Field(default_factory=list)
+
+
+class AIChatResponse(BaseModel):
+    message: str = Field(min_length=1)
+    board_update: BoardPayload | None = Field(default=None, alias="boardUpdate")
+
+    model_config = ConfigDict(populate_by_name=True)

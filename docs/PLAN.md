@@ -145,10 +145,10 @@ This plan is execution-oriented. Each part contains:
 ## Part 8: OpenRouter connectivity
 
 ### Checklist
-- [ ] Add backend OpenRouter client integration using `.env` API key.
-- [ ] Configure model to `openai/gpt-oss-120b`.
-- [ ] Add simple diagnostic endpoint or internal test path for AI call.
-- [ ] Implement clear errors for missing/invalid API key and API failures.
+- [x] Add backend OpenRouter client integration using `.env` API key.
+- [x] Configure model to `openai/gpt-oss-120b`.
+- [x] Add simple diagnostic endpoint or internal test path for AI call.
+- [x] Implement clear errors for missing/invalid API key and API failures.
 
 ### Validation tests
 - Automated/backend test with mocked OpenRouter client for happy/error paths.
@@ -161,13 +161,13 @@ This plan is execution-oriented. Each part contains:
 ## Part 9: Structured AI response for chat + optional board update
 
 ### Checklist
-- [ ] Define structured output schema:
+- [x] Define structured output schema:
   - user-facing assistant message
   - optional board update payload
-- [ ] Send current board JSON + user prompt + conversation history to model.
-- [ ] Validate and parse model structured output safely.
-- [ ] If update is present and valid, apply and persist board mutation.
-- [ ] Add tests for valid response, invalid schema, and no-update case.
+- [x] Send current board JSON + user prompt + conversation history to model.
+- [x] Validate and parse model structured output safely.
+- [x] If update is present and valid, apply and persist board mutation.
+- [x] Add tests for valid response, invalid schema, and no-update case.
 
 ### Validation tests
 - Backend unit tests with mocked AI responses:

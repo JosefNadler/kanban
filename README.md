@@ -55,3 +55,28 @@ The board API expects an `X-User` header.
 - `PUT /api/board`
   - `X-User: user` with valid board JSON replaces the stored board.
   - Invalid board payload returns `422`.
+
+## OpenRouter diagnostic API (Part 8)
+
+The backend uses OpenRouter model `openai/gpt-oss-120b`.
+
+- Set `OPENROUTER_API_KEY` in root `.env`.
+- `POST /api/ai/diagnostic`
+  - Requires `X-User: user`.
+  - Request body: `{ "prompt": "2+2" }`
+  - Response body: `{ "model": "openai/gpt-oss-120b", "output": "4" }` (example)
+  - Missing API key returns `500`.
+  - Upstream OpenRouter failures return `502`.
+
+## AI chat API (Part 9)
+
+- `POST /api/ai/chat`
+  - Requires `X-User: user`.
+  - Request body:
+    - `prompt` (string)
+    - `history` (optional array of `{ "role": "user" | "assistant", "content": "..." }`)
+  - Response body:
+    - `message` (assistant text)
+    - `boardUpdate` (`null` or full board payload with `schemaVersion: 1`)
+  - If `boardUpdate` is present and valid, backend persists it as the latest board state.
+  - Non-JSON model output or schema mismatch returns `502`.
