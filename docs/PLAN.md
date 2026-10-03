@@ -210,15 +210,18 @@ This plan is execution-oriented. Each part contains:
 - Part 8 must be complete before Parts 9-10.
 - Part 6 and Part 7 are both required before meaningful Part 10 validation.
 
-## Confirmed design decisions implemented through Part 7
+## Confirmed design decisions
 
 - Frontend delivery: Next.js app is statically exported and served by FastAPI from `/`.
 - Authentication model (MVP): client-side login with hardcoded credentials (`user` / `password`), with frontend session state in localStorage.
 - Backend board authorization contract: board API requires `X-User` header; current MVP board operations target `user`.
 - Persistence model: SQLite with one board per user (`UNIQUE(user_id)`), board stored as JSON with `schemaVersion: 1`.
 - Startup bootstrap: backend auto-creates DB file/schema, ensures default user and default board exist.
-- Frontend persistence strategy: load board via `GET /api/board` and persist edits via `PUT /api/board` for rename/add/delete/move.
-- UX state decisions: explicit loading, saving, error, and retry states for board fetch/save.
+- Frontend persistence strategy: load board via `GET /api/board` and persist edits via `PUT /api/board` for rename/add/edit/delete/move. Saves are serialized (one request in flight; only the newest pending board is sent next). Column rename saves on blur/Enter, not per keystroke.
+- UX state decisions: explicit loading, saving, error, and retry states for board fetch/save; a failed save shows "Unsaved changes" with a retry-save button.
+- Fixed columns: the backend rejects board updates (user `PUT` -> 422, AI update -> 502) that change column ids or order.
+- AI chat contract: frontend sends `prompt` plus earlier `history`; backend sends system prompt (with board JSON and shape rules) + history + prompt to OpenRouter and expects JSON `{message, boardUpdate}`. OpenRouter `response_format: json_schema` was tried and rejected: with `gpt-oss-120b` it produced invalid output and took ~2 minutes versus ~3-20s without it. Upstream timeout is 90s.
+- Chat/board consistency: pending saves complete before a chat request is sent, and the board is read-only while a chat request is in flight.
 - Drag-and-drop collision behavior: `pointerWithin` is used first (with `closestCorners` fallback) to support dropping cards into empty columns reliably.
 
 ### Quality gates per part

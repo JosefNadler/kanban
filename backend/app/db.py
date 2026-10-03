@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from app.schemas import BoardPayload
@@ -106,7 +107,7 @@ def initialize_database() -> None:
     db_path = get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with connect_db(db_path) as connection:
+    with closing(connect_db(db_path)) as connection:
         connection.executescript(SCHEMA_SQL)
         connection.execute("PRAGMA user_version = 1")
         ensure_default_user_board(connection)

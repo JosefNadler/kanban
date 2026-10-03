@@ -48,7 +48,7 @@ class OpenRouterClient:
         )
 
         try:
-            with urlopen(request, timeout=30) as response:
+            with urlopen(request, timeout=90) as response:
                 raw_body = response.read()
         except HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")

@@ -34,8 +34,11 @@ INDEX_HTML = STATIC_DIR / "index.html"
 
 def get_connection() -> Generator[sqlite3.Connection, None, None]:
     db_path = get_db_path()
-    with connect_db(db_path) as connection:
+    connection = connect_db(db_path)
+    try:
         yield connection
+    finally:
+        connection.close()
 
 
 def get_authenticated_user_id(
@@ -59,6 +62,13 @@ def get_openrouter_client() -> OpenRouterClient:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+FIXED_COLUMNS_ERROR = "Columns are fixed: column ids and order cannot change."
+
+
+def has_same_columns(current: BoardPayload, update: BoardPayload) -> bool:
+    return [column.id for column in current.columns] == [column.id for column in update.columns]
+
+
 def build_chat_messages(
     prompt: str,
     history: list[dict[str, str]],
@@ -68,8 +78,13 @@ def build_chat_messages(
     system_message = (
         "You are assisting with a kanban board update workflow. "
         "Return valid JSON only with shape: "
-        '{"message":"string","boardUpdate":null|BoardPayload}. '
-        "If proposing a board update, it must keep schemaVersion=1 and keep card references valid. "
+        '{"message":"string","boardUpdate":null|Board}. '
+        "Board has the same shape as the current board below: "
+        '{"schemaVersion":1,"columns":[{"id","title","cardIds":[...]}],'
+        '"cards":{"<cardId>":{"id","title","details"}}}. '
+        "Set boardUpdate to null when no change is needed; otherwise return the full updated board. "
+        "Keep schemaVersion=1 and keep the same columns in the same order (column titles may change). "
+        "Every card must be listed in exactly one column's cardIds, and each cards key must equal its id. "
         f"Current board JSON: {board_json}"
     )
 
@@ -107,6 +122,13 @@ def update_board(
     user_id: int = Depends(get_authenticated_user_id),
     connection: sqlite3.Connection = Depends(get_connection),
 ) -> dict:
+    current = get_board_for_user(connection, user_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="Board not found for user.")
+
+    if not has_same_columns(current, board):
+        raise HTTPException(status_code=422, detail=FIXED_COLUMNS_ERROR)
+
     save_board_for_user(connection, user_id, board)
     return board.model_dump(by_alias=True)
 
@@ -158,6 +180,8 @@ def ai_chat(
         ) from exc
 
     if response_payload.board_update is not None:
+        if not has_same_columns(board, response_payload.board_update):
+            raise HTTPException(status_code=502, detail=f"Model output rejected: {FIXED_COLUMNS_ERROR}")
         save_board_for_user(connection, user_id, response_payload.board_update)
 
     return response_payload
@@ -165,6 +189,9 @@ def ai_chat(
 
 @app.get("/{full_path:path}", include_in_schema=False)
 def serve_frontend(full_path: str) -> FileResponse:
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+
     target = (STATIC_DIR / full_path).resolve()
     static_root = STATIC_DIR.resolve()
 

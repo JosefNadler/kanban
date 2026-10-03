@@ -2,14 +2,15 @@
 
 This folder contains the FastAPI backend for the Project Management MVP.
 
-## Current scope (Parts 2-9)
+## Current scope
 
 - Serves statically exported frontend files at `/` from [app/static/](./app/static)
-- Serves a demo JSON API endpoint at `/api/hello`
+- Serves a demo JSON API endpoint at `/api/hello` (scaffold check, unused by the app)
+- Returns 404 for unknown `/api/*` paths; all other unknown paths fall back to `index.html`
 - Persists Kanban board data in SQLite
 - Exposes authenticated board APIs:
   - `GET /api/board`
-  - `PUT /api/board`
+  - `PUT /api/board` (column ids and order are fixed; changes return 422)
 - Exposes authenticated AI diagnostic API:
   - `POST /api/ai/diagnostic`
 - Exposes authenticated AI chat API with structured output:

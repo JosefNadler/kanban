@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
 import {
   DndContext,
   DragOverlay,
@@ -31,14 +32,17 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "failed">("saved");
   const [error, setError] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<AIChatMessage[]>([]);
   const [isChatSending, setIsChatSending] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [lastChatPrompt, setLastChatPrompt] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
-  const latestSaveId = useRef(0);
+  // Saves are serialized: one PUT in flight, and only the newest pending board is sent next.
+  const pendingBoard = useRef<BoardData | null>(null);
+  const isFlushing = useRef(false);
+  const savesDone = useRef<Promise<boolean>>(Promise.resolve(true));
 
   useEffect(() => {
     let isCancelled = false;
@@ -88,34 +92,45 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
     return closestCorners(args);
   };
 
-  const persistBoard = (nextBoard: BoardData) => {
-    const saveId = latestSaveId.current + 1;
-    latestSaveId.current = saveId;
-    setIsSaving(true);
-    setError(null);
+  const flushSaves = async (): Promise<boolean> => {
+    isFlushing.current = true;
+    try {
+      while (pendingBoard.current) {
+        const nextBoard = pendingBoard.current;
+        pendingBoard.current = null;
+        try {
+          await updateBoard(username, nextBoard);
+        } catch (saveError) {
+          pendingBoard.current ??= nextBoard;
+          setError(
+            saveError instanceof Error
+              ? saveError.message
+              : "Could not save board changes."
+          );
+          setSaveStatus("failed");
+          return false;
+        }
+      }
+      setSaveStatus("saved");
+      return true;
+    } finally {
+      isFlushing.current = false;
+    }
+  };
 
-    updateBoard(username, nextBoard)
-      .then((savedBoard) => {
-        if (saveId !== latestSaveId.current) {
-          return;
-        }
-        setBoard(savedBoard);
-      })
-      .catch((saveError) => {
-        if (saveId !== latestSaveId.current) {
-          return;
-        }
-        const message =
-          saveError instanceof Error
-            ? saveError.message
-            : "Could not save board changes.";
-        setError(message);
-      })
-      .finally(() => {
-        if (saveId === latestSaveId.current) {
-          setIsSaving(false);
-        }
-      });
+  const persistBoard = (nextBoard: BoardData) => {
+    pendingBoard.current = nextBoard;
+    setSaveStatus("saving");
+    setError(null);
+    if (!isFlushing.current) {
+      savesDone.current = flushSaves();
+    }
+  };
+
+  const handleRetrySave = () => {
+    if (pendingBoard.current) {
+      persistBoard(pendingBoard.current);
+    }
   };
 
   const applyBoardChange = (updateFn: (current: BoardData) => BoardData) => {
@@ -170,6 +185,13 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
     }));
   };
 
+  const handleEditCard = (cardId: string, title: string, details: string) => {
+    applyBoardChange((prev) => ({
+      ...prev,
+      cards: { ...prev.cards, [cardId]: { id: cardId, title, details } },
+    }));
+  };
+
   const handleDeleteCard = (columnId: string, cardId: string) => {
     applyBoardChange((prev) => {
       return {
@@ -206,16 +228,20 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
     setChatError(null);
     setLastChatPrompt(trimmedPrompt);
 
-    const nextMessages = options.addUserMessage
-      ? [...chatMessages, { role: "user" as const, content: trimmedPrompt }]
-      : chatMessages;
+    // History is everything before this prompt; the prompt itself is sent separately.
+    // On retry the prompt is already the last message, so drop it from history.
+    const history = options.addUserMessage ? chatMessages : chatMessages.slice(0, -1);
 
     if (options.addUserMessage) {
-      setChatMessages(nextMessages);
+      setChatMessages([...chatMessages, { role: "user", content: trimmedPrompt }]);
     }
 
     try {
-      const result = await sendAIChat(username, trimmedPrompt, nextMessages);
+      // The AI edits the server copy of the board, so pending edits must be saved first.
+      if (!(await savesDone.current)) {
+        throw new Error("Board changes are not saved. Retry the save, then resend.");
+      }
+      const result = await sendAIChat(username, trimmedPrompt, history);
       setChatMessages((current) => [
         ...current,
         { role: "assistant", content: result.message },
@@ -305,12 +331,27 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
                 One board. Five columns. Zero clutter.
               </p>
               <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
-                {isSaving ? "Saving..." : "All changes saved"}
+                {saveStatus === "saving"
+                  ? "Saving..."
+                  : saveStatus === "failed"
+                    ? "Unsaved changes"
+                    : "All changes saved"}
               </p>
             </div>
           </div>
           {error ? (
-            <p className="text-sm font-semibold text-red-700">{error}</p>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-sm font-semibold text-red-700">{error}</p>
+              {saveStatus === "failed" ? (
+                <button
+                  type="button"
+                  onClick={handleRetrySave}
+                  className="rounded-full border border-red-300 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-red-700 transition hover:bg-red-100"
+                >
+                  Retry save
+                </button>
+              ) : null}
+            </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-4">
             {board.columns.map((column) => (
@@ -332,7 +373,14 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <section className="grid gap-6 lg:grid-cols-5">
+            {/* Read-only while the AI works, so its board update cannot drop edits made meanwhile. */}
+            <section
+              className={clsx(
+                "grid gap-6 lg:grid-cols-5",
+                isChatSending && "pointer-events-none opacity-70"
+              )}
+              aria-busy={isChatSending}
+            >
               {board.columns.map((column) => (
                 <KanbanColumn
                   key={column.id}
@@ -340,6 +388,7 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
                   cards={column.cardIds.map((cardId) => board.cards[cardId])}
                   onRename={handleRenameColumn}
                   onAddCard={handleAddCard}
+                  onEditCard={handleEditCard}
                   onDeleteCard={handleDeleteCard}
                 />
               ))}

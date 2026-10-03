@@ -1,5 +1,7 @@
 import { fetchBoard, sendAIChat, updateBoard } from "@/lib/boardApi";
-import { initialData } from "@/lib/kanban";
+import boardFixture from "@/lib/kanban-fixture.json";
+
+const initialData = boardFixture;
 
 describe("boardApi", () => {
   afterEach(() => {

@@ -1,6 +1,6 @@
 # Frontend code guide
 
-This document describes the current frontend-only implementation in [frontend/](/home/josef/Projects/pm/frontend).
+This document describes the frontend implementation in [frontend/](/home/josef/Projects/pm/frontend).
 
 ## Stack
 
@@ -29,7 +29,9 @@ This document describes the current frontend-only implementation in [frontend/](
   - hosts AI chat sidebar and sends chat prompts to backend (`POST /api/ai/chat`)
   - applies `boardUpdate` payloads returned by AI responses
   - wires drag-and-drop context
-  - handles column rename, add card, delete card, and move card
+  - handles column rename, add card, edit card, delete card, and move card
+  - serializes saves (one `PUT` in flight; newest pending board sent next) and shows retry on failed save
+  - waits for pending saves before sending a chat prompt and makes the board read-only while chat is in flight
   - renders five columns from board data
   - displays loading, saving, and error states
 - [src/components/AIChatSidebar.tsx](/home/josef/Projects/pm/frontend/src/components/AIChatSidebar.tsx)
@@ -38,15 +40,17 @@ This document describes the current frontend-only implementation in [frontend/](
   - surfaces AI request errors
 - [src/components/KanbanColumn.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanColumn.tsx)
   - droppable column surface
-  - editable column title input
+  - editable column title input (saves on blur/Enter; empty title reverts)
   - sortable list of cards
   - embeds new card form
 - [src/components/KanbanCard.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanCard.tsx)
-  - draggable card item with title/details and remove action
-- [src/components/NewCardForm.tsx](/home/josef/Projects/pm/frontend/src/components/NewCardForm.tsx)
-  - toggleable add-card form
+  - draggable card item with title/details, edit (inline form, drag disabled while editing) and remove actions
+- [src/components/CardForm.tsx](/home/josef/Projects/pm/frontend/src/components/CardForm.tsx)
+  - title/details form shared by add and edit
   - requires non-empty title
   - optional details
+- [src/components/NewCardForm.tsx](/home/josef/Projects/pm/frontend/src/components/NewCardForm.tsx)
+  - toggleable add-card form built on `CardForm`
 - [src/components/KanbanCardPreview.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanCardPreview.tsx)
   - drag overlay preview for active card
 
@@ -54,9 +58,10 @@ This document describes the current frontend-only implementation in [frontend/](
 
 - [src/lib/kanban.ts](/home/josef/Projects/pm/frontend/src/lib/kanban.ts)
   - defines `Card`, `Column`, and `BoardData` types
-  - provides seeded `initialData` with 5 columns and sample cards
   - provides `moveCard` helper used by drag-and-drop handlers
   - provides `createId` helper for new card IDs
+- [src/lib/kanban-fixture.json](/home/josef/Projects/pm/frontend/src/lib/kanban-fixture.json)
+  - seed board used by unit and e2e tests (mirrors backend default board)
 - [src/lib/boardApi.ts](/home/josef/Projects/pm/frontend/src/lib/boardApi.ts)
   - wraps `/api/board` fetch and update calls
   - wraps `/api/ai/chat` request/response

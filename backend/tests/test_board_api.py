@@ -258,3 +258,87 @@ def test_ai_chat_rejects_invalid_schema_output(tmp_path, monkeypatch) -> None:
             assert "Model output did not match required schema" in response.json()["detail"]
     finally:
         app.dependency_overrides.clear()
+
+
+def test_ai_chat_sends_history_before_prompt_once(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PM_DB_PATH", str(tmp_path / "pm.db"))
+    sent: list[list[dict[str, str]]] = []
+
+    class FakeOpenRouterClient:
+        def chat_messages(self, messages: list[dict[str, str]]) -> str:
+            sent.append(messages)
+            return json.dumps({"message": "Ok.", "boardUpdate": None})
+
+    app.dependency_overrides[get_openrouter_client] = lambda: FakeOpenRouterClient()
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/ai/chat",
+                headers={"X-User": "user"},
+                json={
+                    "prompt": "Second question",
+                    "history": [
+                        {"role": "user", "content": "First question"},
+                        {"role": "assistant", "content": "First answer"},
+                    ],
+                },
+            )
+            assert response.status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+    assert [(m["role"], m["content"]) for m in sent[0][1:]] == [
+        ("user", "First question"),
+        ("assistant", "First answer"),
+        ("user", "Second question"),
+    ]
+
+
+def test_ai_chat_rejects_column_changes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PM_DB_PATH", str(tmp_path / "pm.db"))
+
+    with TestClient(app) as client:
+        current_board = client.get("/api/board", headers={"X-User": "user"}).json()
+    updated_board = json.loads(json.dumps(current_board))
+    removed = updated_board["columns"].pop()
+    for card_id in removed["cardIds"]:
+        del updated_board["cards"][card_id]
+
+    class FakeOpenRouterClient:
+        def chat_messages(self, messages: list[dict[str, str]]) -> str:
+            return json.dumps({"message": "Removed a column.", "boardUpdate": updated_board})
+
+    app.dependency_overrides[get_openrouter_client] = lambda: FakeOpenRouterClient()
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/ai/chat",
+                headers={"X-User": "user"},
+                json={"prompt": "Remove the last column", "history": []},
+            )
+            assert response.status_code == 502
+            assert "Columns are fixed" in response.json()["detail"]
+
+            refreshed = client.get("/api/board", headers={"X-User": "user"}).json()
+            assert len(refreshed["columns"]) == 5
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_board_update_rejects_column_changes(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PM_DB_PATH", str(tmp_path / "pm.db"))
+
+    with TestClient(app) as client:
+        payload = client.get("/api/board", headers={"X-User": "user"}).json()
+        payload["columns"].reverse()
+        response = client.put("/api/board", headers={"X-User": "user"}, json=payload)
+        assert response.status_code == 422
+        assert "Columns are fixed" in response.json()["detail"]
+
+
+def test_unknown_api_path_returns_404(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("PM_DB_PATH", str(tmp_path / "pm.db"))
+
+    with TestClient(app) as client:
+        assert client.get("/api/does-not-exist").status_code == 404
+
