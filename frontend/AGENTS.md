@@ -26,10 +26,16 @@ This document describes the current frontend-only implementation in [frontend/](
 - [src/components/KanbanBoard.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanBoard.tsx)
   - loads board state from backend API (`GET /api/board`)
   - persists board updates to backend API (`PUT /api/board`)
+  - hosts AI chat sidebar and sends chat prompts to backend (`POST /api/ai/chat`)
+  - applies `boardUpdate` payloads returned by AI responses
   - wires drag-and-drop context
   - handles column rename, add card, delete card, and move card
   - renders five columns from board data
   - displays loading, saving, and error states
+- [src/components/AIChatSidebar.tsx](/home/josef/Projects/pm/frontend/src/components/AIChatSidebar.tsx)
+  - renders chat message history
+  - handles prompt input and submit/retry UI states
+  - surfaces AI request errors
 - [src/components/KanbanColumn.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanColumn.tsx)
   - droppable column surface
   - editable column title input
@@ -53,10 +59,12 @@ This document describes the current frontend-only implementation in [frontend/](
   - provides `createId` helper for new card IDs
 - [src/lib/boardApi.ts](/home/josef/Projects/pm/frontend/src/lib/boardApi.ts)
   - wraps `/api/board` fetch and update calls
+  - wraps `/api/ai/chat` request/response
   - sets required `X-User` header
   - surfaces backend error details
 
 Current persistence behavior: board changes are persisted via backend API and survive page refresh.
+Current AI behavior: chat responses can optionally include a board update payload that is applied immediately.
 
 ## Tests
 

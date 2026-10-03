@@ -43,3 +43,34 @@ export const updateBoard = async (
 
   return response.json();
 };
+
+export type AIChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type AIChatResult = {
+  message: string;
+  boardUpdate: BoardData | null;
+};
+
+export const sendAIChat = async (
+  username: string,
+  prompt: string,
+  history: AIChatMessage[]
+): Promise<AIChatResult> => {
+  const response = await fetch("/api/ai/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-User": username,
+    },
+    body: JSON.stringify({ prompt, history }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+
+  return response.json();
+};

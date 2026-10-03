@@ -61,6 +61,8 @@ The board API expects an `X-User` header.
 The backend uses OpenRouter model `openai/gpt-oss-120b`.
 
 - Set `OPENROUTER_API_KEY` in root `.env`.
+- Docker Compose loads root `.env` for the backend container.
+- After changing `.env`, restart with `./scripts/stop-linux.sh` then `./scripts/start-linux.sh` (or platform equivalent).
 - `POST /api/ai/diagnostic`
   - Requires `X-User: user`.
   - Request body: `{ "prompt": "2+2" }`
@@ -80,3 +82,11 @@ The backend uses OpenRouter model `openai/gpt-oss-120b`.
     - `boardUpdate` (`null` or full board payload with `schemaVersion: 1`)
   - If `boardUpdate` is present and valid, backend persists it as the latest board state.
   - Non-JSON model output or schema mismatch returns `502`.
+
+## Sidebar AI chat UI (Part 10)
+
+- The board screen includes an AI chat sidebar.
+- Prompts are sent to `POST /api/ai/chat` with conversation history.
+- Assistant replies are shown in the sidebar message history.
+- If `boardUpdate` is returned, board columns/cards refresh automatically in the UI.
+- Chat includes sending, error, and retry states.

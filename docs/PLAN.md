@@ -183,12 +183,12 @@ This plan is execution-oriented. Each part contains:
 ## Part 10: Sidebar AI chat UI + board refresh
 
 ### Checklist
-- [ ] Build sidebar chat UI aligned with project color scheme.
-- [ ] Support chat message history and submit behavior.
-- [ ] Integrate with backend AI endpoint.
-- [ ] When backend returns board update, refresh board state automatically.
-- [ ] Add robust UI states (loading, error, retry where appropriate).
-- [ ] Add unit and e2e tests for chat and board update flows.
+- [x] Build sidebar chat UI aligned with project color scheme.
+- [x] Support chat message history and submit behavior.
+- [x] Integrate with backend AI endpoint.
+- [x] When backend returns board update, refresh board state automatically.
+- [x] Add robust UI states (loading, error, retry where appropriate).
+- [x] Add unit and e2e tests for chat and board update flows.
 
 ### Validation tests
 - Frontend unit/integration tests for chat interactions.

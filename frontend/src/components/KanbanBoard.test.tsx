@@ -3,13 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { initialData, type BoardData } from "@/lib/kanban";
+import type { AIChatMessage, AIChatResult } from "@/lib/boardApi";
 
 const fetchBoardMock = vi.fn<() => Promise<BoardData>>();
 const updateBoardMock = vi.fn<(username: string, board: BoardData) => Promise<BoardData>>();
+const sendAIChatMock = vi.fn<
+  (username: string, prompt: string, history: AIChatMessage[]) => Promise<AIChatResult>
+>();
 
 vi.mock("@/lib/boardApi", () => ({
   fetchBoard: () => fetchBoardMock(),
   updateBoard: (username: string, board: BoardData) => updateBoardMock(username, board),
+  sendAIChat: (username: string, prompt: string, history: AIChatMessage[]) =>
+    sendAIChatMock(username, prompt, history),
 }));
 
 const makeBoard = (): BoardData => structuredClone(initialData);
@@ -25,6 +31,7 @@ describe("KanbanBoard", () => {
   beforeEach(() => {
     fetchBoardMock.mockResolvedValue(makeBoard());
     updateBoardMock.mockImplementation(async (_, board) => board);
+    sendAIChatMock.mockResolvedValue({ message: "Acknowledged.", boardUpdate: null });
   });
 
   afterEach(() => {
@@ -75,5 +82,58 @@ describe("KanbanBoard", () => {
     await waitFor(() => {
       expect(updateBoardMock).toHaveBeenCalled();
     });
+  });
+
+  it("sends chat prompt and renders assistant reply", async () => {
+    await renderBoard();
+    await userEvent.type(screen.getByLabelText("Message"), "What should I do next?");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(sendAIChatMock).toHaveBeenCalledWith(
+        "user",
+        "What should I do next?",
+        [{ role: "user", content: "What should I do next?" }]
+      );
+    });
+
+    expect(screen.getByText("What should I do next?")).toBeInTheDocument();
+    expect(screen.getByText("Acknowledged.")).toBeInTheDocument();
+  });
+
+  it("applies board update from AI response", async () => {
+    const nextBoard = makeBoard();
+    nextBoard.columns[0].title = "AI Updated";
+    sendAIChatMock.mockResolvedValueOnce({
+      message: "Updated the board.",
+      boardUpdate: nextBoard,
+    });
+
+    await renderBoard();
+    await userEvent.type(screen.getByLabelText("Message"), "Rename first column");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await screen.findByText("Updated the board.");
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("AI Updated")).toBeInTheDocument();
+    });
+  });
+
+  it("shows retry when chat request fails", async () => {
+    sendAIChatMock
+      .mockRejectedValueOnce(new Error("AI unavailable"))
+      .mockResolvedValueOnce({ message: "Retried successfully.", boardUpdate: null });
+
+    await renderBoard();
+    await userEvent.type(screen.getByLabelText("Message"), "Try update");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await screen.findByText("AI unavailable");
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(sendAIChatMock).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByText("Retried successfully.")).toBeInTheDocument();
   });
 });

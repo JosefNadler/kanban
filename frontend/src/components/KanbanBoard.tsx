@@ -14,7 +14,13 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
-import { updateBoard, fetchBoard } from "@/lib/boardApi";
+import { AIChatSidebar } from "@/components/AIChatSidebar";
+import {
+  fetchBoard,
+  sendAIChat,
+  updateBoard,
+  type AIChatMessage,
+} from "@/lib/boardApi";
 import { createId, moveCard, type BoardData } from "@/lib/kanban";
 
 type KanbanBoardProps = {
@@ -27,6 +33,10 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<AIChatMessage[]>([]);
+  const [isChatSending, setIsChatSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [lastChatPrompt, setLastChatPrompt] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const latestSaveId = useRef(0);
 
@@ -179,6 +189,63 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
     });
   };
 
+  const submitChatPrompt = async (
+    prompt: string,
+    options: { addUserMessage: boolean }
+  ) => {
+    if (!board) {
+      return;
+    }
+
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt || isChatSending) {
+      return;
+    }
+
+    setIsChatSending(true);
+    setChatError(null);
+    setLastChatPrompt(trimmedPrompt);
+
+    const nextMessages = options.addUserMessage
+      ? [...chatMessages, { role: "user" as const, content: trimmedPrompt }]
+      : chatMessages;
+
+    if (options.addUserMessage) {
+      setChatMessages(nextMessages);
+    }
+
+    try {
+      const result = await sendAIChat(username, trimmedPrompt, nextMessages);
+      setChatMessages((current) => [
+        ...current,
+        { role: "assistant", content: result.message },
+      ]);
+      if (result.boardUpdate) {
+        setBoard(result.boardUpdate);
+        setError(null);
+      }
+    } catch (chatRequestError) {
+      const message =
+        chatRequestError instanceof Error
+          ? chatRequestError.message
+          : "Could not send chat request.";
+      setChatError(message);
+    } finally {
+      setIsChatSending(false);
+    }
+  };
+
+  const handleSendChat = async (prompt: string) => {
+    await submitChatPrompt(prompt, { addUserMessage: true });
+  };
+
+  const handleRetryChat = async () => {
+    if (!lastChatPrompt) {
+      return;
+    }
+    await submitChatPrompt(lastChatPrompt, { addUserMessage: false });
+  };
+
   if (isLoading) {
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6">
@@ -258,32 +325,42 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
           </div>
         </header>
 
-        <DndContext
-          sensors={sensors}
-          collisionDetection={collisionDetectionStrategy}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <section className="grid gap-6 lg:grid-cols-5">
-            {board.columns.map((column) => (
-              <KanbanColumn
-                key={column.id}
-                column={column}
-                cards={column.cardIds.map((cardId) => board.cards[cardId])}
-                onRename={handleRenameColumn}
-                onAddCard={handleAddCard}
-                onDeleteCard={handleDeleteCard}
-              />
-            ))}
-          </section>
-          <DragOverlay>
-            {activeCard ? (
-              <div className="w-[260px]">
-                <KanbanCardPreview card={activeCard} />
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,4fr)_360px]">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={collisionDetectionStrategy}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <section className="grid gap-6 lg:grid-cols-5">
+              {board.columns.map((column) => (
+                <KanbanColumn
+                  key={column.id}
+                  column={column}
+                  cards={column.cardIds.map((cardId) => board.cards[cardId])}
+                  onRename={handleRenameColumn}
+                  onAddCard={handleAddCard}
+                  onDeleteCard={handleDeleteCard}
+                />
+              ))}
+            </section>
+            <DragOverlay>
+              {activeCard ? (
+                <div className="w-[260px]">
+                  <KanbanCardPreview card={activeCard} />
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+
+          <AIChatSidebar
+            messages={chatMessages}
+            isSending={isChatSending}
+            error={chatError}
+            onSend={handleSendChat}
+            onRetry={handleRetryChat}
+          />
+        </div>
       </main>
     </div>
   );

@@ -5,6 +5,39 @@ const createApiState = () => structuredClone(boardFixture);
 
 const mockBoardApi = async (page: Page) => {
   let board = createApiState();
+  await page.route("**/api/ai/chat", async (route) => {
+    const request = route.request();
+    if (request.method() !== "POST") {
+      await route.fulfill({ status: 405, json: { detail: "Method not allowed" } });
+      return;
+    }
+
+    const payload = request.postDataJSON() as {
+      prompt?: string;
+      history?: Array<{ role: "user" | "assistant"; content: string }>;
+    };
+    const prompt = payload.prompt ?? "";
+
+    if (/rename first column/i.test(prompt)) {
+      board.columns[0].title = "AI Updated";
+      await route.fulfill({
+        status: 200,
+        json: {
+          message: "Renamed first column to AI Updated.",
+          boardUpdate: board,
+        },
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      json: {
+        message: "No board update required.",
+        boardUpdate: null,
+      },
+    });
+  });
   await page.route("**/api/board", async (route) => {
     const request = route.request();
     if (request.method() === "GET") {
@@ -140,4 +173,16 @@ test("logs out back to sign in", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: "Log out" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+});
+
+test("chat updates board and renders assistant response", async ({ page }) => {
+  await page.goto("/");
+  await login(page);
+  await page.getByLabel("Message").fill("Please rename first column");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByText("Renamed first column to AI Updated.")).toBeVisible();
+  await expect(
+    page.getByTestId("column-col-backlog").getByLabel("Column title")
+  ).toHaveValue("AI Updated");
 });
