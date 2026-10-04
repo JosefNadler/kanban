@@ -8,7 +8,7 @@ Key rules from AGENTS.md: keep it simple (no over-engineering, no unnecessary de
 
 ## Commands
 
-Full app (Docker, serves on http://localhost:8000, loads root `.env`):
+Full app (Docker, serves on http://localhost:8000, loads root `.env`, which must set `OPENROUTER_API_KEY` for the AI endpoints):
 
 ```bash
 ./scripts/start-linux.sh   # docker compose up --build -d
@@ -34,6 +34,8 @@ npm run lint
 npm run test           # Vitest unit tests (src/**/*.test.ts[x])
 npx vitest run src/lib/kanban.test.ts   # single unit test file
 npm run test:e2e       # Playwright; auto-starts dev server on 127.0.0.1:3000
+npx playwright test -g "<test name>"   # single e2e test
+npm run test:all       # unit + e2e
 npm run build          # static export to frontend/out
 ```
 
@@ -44,5 +46,5 @@ npm run build          # static export to frontend/out
 - **Auth (MVP)**: login is client-side only (hardcoded `user`/`password`, flag in localStorage `pm-authenticated`). The backend identifies the user solely via the `X-User` header (401 if missing, 403 if unknown user); `frontend/src/lib/boardApi.ts` sets it.
 - **Persistence**: SQLite at `backend/data/pm.db` (override with `PM_DB_PATH`; tests use this with `tmp_path`). Startup (`lifespan` -> `initialize_database`) creates the schema and seeds the default user and board. One board per user is enforced by `UNIQUE(user_id)`. The whole board is stored as a single JSON blob; the frontend `PUT`s the full board after every edit (no partial updates). Saves are serialized in `KanbanBoard.tsx` (one request in flight, newest pending board sent next). Columns are fixed: the backend rejects updates that change column ids or order.
 - **Board shape** (`schemaVersion: 1`): `columns[]` each with `id`, `title`, `cardIds[]`, plus a `cards` map keyed by card id. `BoardPayload` in `backend/app/schemas.py` validates consistency (unique ids, card keys match ids, card references valid). The TS mirror is in `frontend/src/lib/kanban.ts`. Change both together.
-- **AI chat**: `POST /api/ai/chat` sends a system prompt with the current board JSON, plus history and the prompt, to OpenRouter (`openai/gpt-oss-120b`, stdlib `urllib` client in `app/openrouter.py`). `history` holds earlier messages only (not the current prompt). The model must return JSON `{"message", "boardUpdate": null | BoardPayload}`. Do not add OpenRouter `response_format: json_schema`: with this model it produced invalid output and took ~2 min. The backend validates it (502 on non-JSON or schema mismatch) and persists `boardUpdate` if present. The frontend then replaces its board state with the returned board. Backend tests override the `get_openrouter_client` dependency to mock the model. `POST /api/ai/diagnostic` is a plain prompt-in/text-out connectivity check.
+- **AI chat**: `POST /api/ai/chat` sends a system prompt with the current board JSON, plus history and the prompt, to OpenRouter (`openai/gpt-oss-120b`, stdlib `urllib` client in `app/openrouter.py`). `history` holds earlier messages only (not the current prompt). The model must return JSON `{"message", "boardUpdate": null | BoardPayload}`. Do not add OpenRouter `response_format: json_schema`: with this model it produced invalid output and took ~2 min. The backend validates it (502 on non-JSON or schema mismatch) and persists `boardUpdate` if present. The frontend then replaces its board state with the returned board. Pending saves are flushed before a prompt is sent, and the board is read-only while the AI request is in flight. Backend tests override the `get_openrouter_client` dependency to mock the model. `POST /api/ai/diagnostic` is a plain prompt-in/text-out connectivity check.
 - **Frontend state**: `KanbanBoard.tsx` owns board state, the dnd-kit context (collision detection is `pointerWithin` with `closestCorners` fallback so drops into empty columns work), save/loading/error states, and the `AIChatSidebar`. Tests depend on `data-testid` attributes on columns and cards.

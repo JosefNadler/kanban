@@ -4,7 +4,12 @@ import { vi } from "vitest";
 import { AppShell } from "@/components/AppShell";
 
 vi.mock("@/components/KanbanBoard", () => ({
-  KanbanBoard: () => <h1>Kanban Studio</h1>,
+  KanbanBoard: ({ onLogout }: { onLogout: () => void }) => (
+    <>
+      <h1>Kanban Studio</h1>
+      <button onClick={onLogout}>Log out</button>
+    </>
+  ),
 }));
 
 const login = async (username: string, password: string) => {

@@ -22,7 +22,7 @@ vi.mock("@/lib/boardApi", () => ({
 const makeBoard = (): BoardData => structuredClone(boardFixture);
 
 const renderBoard = async () => {
-  render(<KanbanBoard username="user" />);
+  render(<KanbanBoard username="user" onLogout={() => {}} />);
   await screen.findByRole("heading", { name: "Kanban Studio" });
 };
 

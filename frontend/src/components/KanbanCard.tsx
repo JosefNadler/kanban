@@ -4,6 +4,7 @@ import { CSS } from "@dnd-kit/utilities";
 import clsx from "clsx";
 import type { Card } from "@/lib/kanban";
 import { CardForm } from "@/components/CardForm";
+import { PencilIcon, TrashIcon } from "@/components/icons";
 
 type KanbanCardProps = {
   card: Card;
@@ -26,8 +27,9 @@ export const KanbanCard = ({ card, onEdit, onDelete }: KanbanCardProps) => {
       ref={setNodeRef}
       style={style}
       className={clsx(
-        "rounded-2xl border border-transparent bg-white px-4 py-4 shadow-[0_12px_24px_rgba(3,33,71,0.08)]",
-        "transition-all duration-150",
+        "group rounded-xl border border-[var(--stroke)] bg-white px-3 py-3 shadow-[0_4px_12px_rgba(3,33,71,0.06)]",
+        "transition-shadow duration-150 hover:shadow-[0_8px_20px_rgba(3,33,71,0.1)]",
+        !isEditing && "cursor-grab",
         isDragging && "opacity-60 shadow-[0_18px_32px_rgba(3,33,71,0.16)]"
       )}
       // Sortable attributes add role="button" and aria-disabled, which would disable the edit form.
@@ -46,34 +48,36 @@ export const KanbanCard = ({ card, onEdit, onDelete }: KanbanCardProps) => {
           onCancel={() => setIsEditing(false)}
         />
       ) : (
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h4 className="font-display text-base font-semibold text-[var(--navy-dark)]">
+        <>
+          <div className="flex items-start gap-2">
+            <h4 className="flex-1 font-display text-sm font-semibold leading-5 text-[var(--navy-dark)]">
               {card.title}
             </h4>
-            <p className="mt-2 text-sm leading-6 text-[var(--gray-text)]">
-              {card.details}
-            </p>
+            <div className="-mr-1 -mt-1 flex shrink-0 gap-0.5 opacity-60 transition group-hover:opacity-100 group-focus-within:opacity-100">
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                className="rounded-md p-1 text-[var(--gray-text)] transition hover:bg-[var(--surface)] hover:text-[var(--primary-blue)]"
+                aria-label={`Edit ${card.title}`}
+                title="Edit"
+              >
+                <PencilIcon />
+              </button>
+              <button
+                type="button"
+                onClick={() => onDelete(card.id)}
+                className="rounded-md p-1 text-[var(--gray-text)] transition hover:bg-red-50 hover:text-red-600"
+                aria-label={`Delete ${card.title}`}
+                title="Delete"
+              >
+                <TrashIcon />
+              </button>
+            </div>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <button
-              type="button"
-              onClick={() => setIsEditing(true)}
-              className="rounded-full border border-transparent px-2 py-1 text-xs font-semibold text-[var(--gray-text)] transition hover:border-[var(--stroke)] hover:text-[var(--primary-blue)]"
-              aria-label={`Edit ${card.title}`}
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => onDelete(card.id)}
-              className="rounded-full border border-transparent px-2 py-1 text-xs font-semibold text-[var(--gray-text)] transition hover:border-[var(--stroke)] hover:text-[var(--navy-dark)]"
-              aria-label={`Delete ${card.title}`}
-            >
-              Remove
-            </button>
-          </div>
-        </div>
+          <p className="mt-1.5 text-sm leading-5 text-[var(--gray-text)]">
+            {card.details}
+          </p>
+        </>
       )}
     </article>
   );

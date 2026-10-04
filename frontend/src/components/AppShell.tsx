@@ -115,18 +115,5 @@ export const AppShell = () => {
     );
   }
 
-  return (
-    <>
-      <div className="fixed right-6 top-6 z-10">
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="rounded-full border border-[var(--stroke)] bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--navy-dark)] shadow-[var(--shadow)] transition hover:border-[var(--primary-blue)] hover:text-[var(--primary-blue)]"
-        >
-          Log out
-        </button>
-      </div>
-      <KanbanBoard username={currentUser} />
-    </>
-  );
+  return <KanbanBoard username={currentUser} onLogout={handleLogout} />;
 };

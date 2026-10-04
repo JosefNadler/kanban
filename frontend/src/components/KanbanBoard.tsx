@@ -16,6 +16,7 @@ import {
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { AIChatSidebar } from "@/components/AIChatSidebar";
+import { LogOutIcon } from "@/components/icons";
 import {
   fetchBoard,
   sendAIChat,
@@ -26,9 +27,10 @@ import { createId, moveCard, type BoardData } from "@/lib/kanban";
 
 type KanbanBoardProps = {
   username: string;
+  onLogout: () => void;
 };
 
-export const KanbanBoard = ({ username }: KanbanBoardProps) => {
+export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
   const [board, setBoard] = useState<BoardData | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -292,7 +294,7 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
           <button
             type="button"
             onClick={() => setReloadToken((current) => current + 1)}
-            className="mt-4 rounded-full bg-[var(--secondary-purple)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:brightness-110"
+            className="mt-4 rounded-lg bg-[var(--secondary-purple)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:brightness-110"
           >
             Retry
           </button>
@@ -304,113 +306,106 @@ export const KanbanBoard = ({ username }: KanbanBoardProps) => {
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
   return (
-    <div className="relative overflow-hidden">
-      <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
-      <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
-
-      <main className="relative mx-auto flex min-h-screen max-w-[1500px] flex-col gap-10 px-6 pb-16 pt-12">
-        <header className="flex flex-col gap-6 rounded-[32px] border border-[var(--stroke)] bg-white/80 p-8 shadow-[var(--shadow)] backdrop-blur">
-          <div className="flex flex-wrap items-start justify-between gap-6">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[var(--gray-text)]">
-                Single Board Kanban
-              </p>
-              <h1 className="mt-3 font-display text-4xl font-semibold text-[var(--navy-dark)]">
-                Kanban Studio
-              </h1>
-              <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--gray-text)]">
-                Keep momentum visible. Rename columns, drag cards between stages,
-                and capture quick notes without getting buried in settings.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-[var(--stroke)] bg-[var(--surface)] px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">
-                Focus
-              </p>
-              <p className="mt-2 text-lg font-semibold text-[var(--primary-blue)]">
-                One board. Five columns. Zero clutter.
-              </p>
-              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
-                {saveStatus === "saving"
-                  ? "Saving..."
-                  : saveStatus === "failed"
-                    ? "Unsaved changes"
-                    : "All changes saved"}
-              </p>
-            </div>
-          </div>
-          {error ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-sm font-semibold text-red-700">{error}</p>
-              {saveStatus === "failed" ? (
-                <button
-                  type="button"
-                  onClick={handleRetrySave}
-                  className="rounded-full border border-red-300 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-red-700 transition hover:bg-red-100"
-                >
-                  Retry save
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          <div className="flex flex-wrap items-center gap-4">
-            {board.columns.map((column) => (
-              <div
-                key={column.id}
-                className="flex items-center gap-2 rounded-full border border-[var(--stroke)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)]"
-              >
-                <span className="h-2 w-2 rounded-full bg-[var(--accent-yellow)]" />
-                {column.title}
-              </div>
-            ))}
-          </div>
-        </header>
-
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,4fr)_360px]">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={collisionDetectionStrategy}
-            onDragStart={handleDragStart}
-            onDragEnd={handleDragEnd}
-          >
-            {/* Read-only while the AI works, so its board update cannot drop edits made meanwhile. */}
-            <section
-              className={clsx(
-                "grid gap-6 lg:grid-cols-5",
-                isChatSending && "pointer-events-none opacity-70"
-              )}
-              aria-busy={isChatSending}
-            >
-              {board.columns.map((column) => (
-                <KanbanColumn
-                  key={column.id}
-                  column={column}
-                  cards={column.cardIds.map((cardId) => board.cards[cardId])}
-                  onRename={handleRenameColumn}
-                  onAddCard={handleAddCard}
-                  onEditCard={handleEditCard}
-                  onDeleteCard={handleDeleteCard}
-                />
-              ))}
-            </section>
-            <DragOverlay>
-              {activeCard ? (
-                <div className="w-[260px]">
-                  <KanbanCardPreview card={activeCard} />
-                </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
-
-          <AIChatSidebar
-            messages={chatMessages}
-            isSending={isChatSending}
-            error={chatError}
-            onSend={handleSendChat}
-            onRetry={handleRetryChat}
-          />
+    <main className="flex min-h-screen flex-col gap-4 px-4 py-4 sm:px-6">
+      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-2xl border border-[var(--stroke)] bg-white px-5 py-3 shadow-[var(--shadow)]">
+        <div className="flex items-baseline gap-4">
+          <h1 className="font-display text-2xl font-semibold text-[var(--navy-dark)]">
+            Kanban Studio
+          </h1>
+          <p className="hidden text-sm text-[var(--gray-text)] md:block">
+            Drag cards between stages, click a column title to rename it.
+          </p>
         </div>
-      </main>
-    </div>
+        <div className="flex items-center gap-3">
+          <span
+            className={clsx(
+              "flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.15em]",
+              saveStatus === "failed" ? "text-red-700" : "text-[var(--gray-text)]"
+            )}
+          >
+            <span
+              className={clsx(
+                "h-2 w-2 rounded-full",
+                saveStatus === "saved" && "bg-emerald-500",
+                saveStatus === "saving" && "bg-[var(--accent-yellow)]",
+                saveStatus === "failed" && "bg-red-600"
+              )}
+            />
+            {saveStatus === "saving"
+              ? "Saving..."
+              : saveStatus === "failed"
+                ? "Unsaved changes"
+                : "All changes saved"}
+          </span>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="flex items-center gap-2 rounded-lg border border-[var(--stroke-strong)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--navy-dark)] transition hover:border-[var(--primary-blue)] hover:text-[var(--primary-blue)]"
+          >
+            <LogOutIcon />
+            Log out
+          </button>
+        </div>
+        {error ? (
+          <div className="flex w-full flex-wrap items-center gap-3">
+            <p className="text-sm font-semibold text-red-700">{error}</p>
+            {saveStatus === "failed" ? (
+              <button
+                type="button"
+                onClick={handleRetrySave}
+                className="rounded-lg border border-red-300 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-red-700 transition hover:bg-red-100"
+              >
+                Retry save
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </header>
+
+      <div className="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={collisionDetectionStrategy}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          {/* Read-only while the AI works, so its board update cannot drop edits made meanwhile. */}
+          <section
+            className={clsx(
+              "grid auto-cols-[minmax(240px,1fr)] grid-flow-col lg:auto-cols-[minmax(180px,1fr)] gap-3 overflow-x-auto pb-2",
+              isChatSending && "pointer-events-none opacity-70"
+            )}
+            aria-busy={isChatSending}
+          >
+            {board.columns.map((column) => (
+              <KanbanColumn
+                key={column.id}
+                column={column}
+                cards={column.cardIds.map((cardId) => board.cards[cardId])}
+                onRename={handleRenameColumn}
+                onAddCard={handleAddCard}
+                onEditCard={handleEditCard}
+                onDeleteCard={handleDeleteCard}
+              />
+            ))}
+          </section>
+          <DragOverlay>
+            {activeCard ? (
+              <div className="w-[280px] rotate-2">
+                <KanbanCardPreview card={activeCard} />
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+
+        <AIChatSidebar
+          messages={chatMessages}
+          isSending={isChatSending}
+          error={chatError}
+          onSend={handleSendChat}
+          onRetry={handleRetryChat}
+        />
+      </div>
+    </main>
   );
 };

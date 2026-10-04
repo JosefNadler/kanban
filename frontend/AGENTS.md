@@ -22,7 +22,7 @@ This document describes the frontend implementation in [frontend/](/home/josef/P
   - login gate shown before board access
   - hardcoded credential check (`user` / `password`)
   - localStorage-backed auth session (`pm-authenticated`)
-  - logout action that clears auth and returns to sign-in
+  - logout handler (passed to `KanbanBoard`, whose header renders the button) that clears auth and returns to sign-in
 - [src/components/KanbanBoard.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanBoard.tsx)
   - loads board state from backend API (`GET /api/board`)
   - persists board updates to backend API (`PUT /api/board`)
@@ -32,7 +32,7 @@ This document describes the frontend implementation in [frontend/](/home/josef/P
   - handles column rename, add card, edit card, delete card, and move card
   - serializes saves (one `PUT` in flight; newest pending board sent next) and shows retry on failed save
   - waits for pending saves before sending a chat prompt and makes the board read-only while chat is in flight
-  - renders five columns from board data
+  - renders a compact header (title, save status, logout) and five columns in a horizontal row that fills the width and scrolls horizontally when narrow; the chat sidebar sits to the right on wide screens and below the board otherwise
   - displays loading, saving, and error states
 - [src/components/AIChatSidebar.tsx](/home/josef/Projects/pm/frontend/src/components/AIChatSidebar.tsx)
   - renders chat message history
@@ -44,7 +44,9 @@ This document describes the frontend implementation in [frontend/](/home/josef/P
   - sortable list of cards
   - embeds new card form
 - [src/components/KanbanCard.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanCard.tsx)
-  - draggable card item with title/details, edit (inline form, drag disabled while editing) and remove actions
+  - draggable card item with title/details, edit (inline form, drag disabled while editing) and delete as icon buttons (accessible names `Edit <title>` / `Delete <title>`)
+- [src/components/icons.tsx](/home/josef/Projects/pm/frontend/src/components/icons.tsx)
+  - inline SVG icons (pencil, trash, plus, log out)
 - [src/components/CardForm.tsx](/home/josef/Projects/pm/frontend/src/components/CardForm.tsx)
   - title/details form shared by add and edit
   - requires non-empty title
