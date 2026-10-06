@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import type { AIChatMessage } from "@/lib/boardApi";
+import type { AIChatMessage } from "@/lib/api";
 
 type AIChatSidebarProps = {
   messages: AIChatMessage[];

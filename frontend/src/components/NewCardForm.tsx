@@ -1,21 +1,24 @@
 import { useState } from "react";
 import { CardForm } from "@/components/CardForm";
 import { PlusIcon } from "@/components/icons";
+import type { CardFields } from "@/lib/kanban";
 
 type NewCardFormProps = {
-  onAdd: (title: string, details: string) => void;
+  members: string[];
+  onAdd: (fields: CardFields) => void;
 };
 
-export const NewCardForm = ({ onAdd }: NewCardFormProps) => {
+export const NewCardForm = ({ members, onAdd }: NewCardFormProps) => {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
     <div className="mt-2">
       {isOpen ? (
         <CardForm
+          members={members}
           submitLabel="Add card"
-          onSubmit={(title, details) => {
-            onAdd(title, details);
+          onSubmit={(fields) => {
+            onAdd(fields);
             setIsOpen(false);
           }}
           onCancel={() => setIsOpen(false)}

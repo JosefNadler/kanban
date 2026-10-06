@@ -1,119 +1,118 @@
 "use client";
 
-import { useState, useSyncExternalStore, type FormEvent } from "react";
-import { KanbanBoard } from "@/components/KanbanBoard";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { AuthScreen } from "@/components/AuthScreen";
+import { Workspace } from "@/components/Workspace";
+import { PrimaryButton, SecondaryButton } from "@/components/ui";
+import { fetchMe, logout, UNAUTHORIZED_EVENT, type AuthResult, type User } from "@/lib/api";
 
-const AUTH_STORAGE_KEY = "pm-authenticated";
-const USER_STORAGE_KEY = "pm-username";
-const VALID_USERNAME = "user";
-const VALID_PASSWORD = "password";
+const TOKEN_STORAGE_KEY = "pm-token";
+const SESSION_EVENT = "pm-session";
 
 const subscribeToSession = (onChange: () => void) => {
   window.addEventListener("storage", onChange);
-  return () => window.removeEventListener("storage", onChange);
+  window.addEventListener(SESSION_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(SESSION_EVENT, onChange);
+  };
 };
 
-const getSessionUser = () =>
-  localStorage.getItem(AUTH_STORAGE_KEY) === "true"
-    ? localStorage.getItem(USER_STORAGE_KEY) ?? VALID_USERNAME
-    : null;
+const getToken = () => localStorage.getItem(TOKEN_STORAGE_KEY);
 
 // undefined means the session has not been read yet (static prerender and hydration).
-const getServerSessionUser = () => undefined;
+const getServerToken = () => undefined;
 
-const notifySessionChange = () => window.dispatchEvent(new StorageEvent("storage"));
+const setToken = (token: string | null) => {
+  if (token) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+  window.dispatchEvent(new Event(SESSION_EVENT));
+};
 
 export const AppShell = () => {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const currentUser = useSyncExternalStore(
-    subscribeToSession,
-    getSessionUser,
-    getServerSessionUser
-  );
+  const token = useSyncExternalStore(subscribeToSession, getToken, getServerToken);
+  const [user, setUser] = useState<User | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
-  const handleLogin = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const clearSession = useCallback(() => {
+    setUser(null);
+    setToken(null);
+  }, []);
 
-    if (username === VALID_USERNAME && password === VALID_PASSWORD) {
-      localStorage.setItem(AUTH_STORAGE_KEY, "true");
-      localStorage.setItem(USER_STORAGE_KEY, username);
-      notifySessionChange();
-      setUsername("");
-      setPassword("");
-      setError("");
+  useEffect(() => {
+    window.addEventListener(UNAUTHORIZED_EVENT, clearSession);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, clearSession);
+  }, [clearSession]);
+
+  useEffect(() => {
+    if (!token || user) {
       return;
     }
+    let isCancelled = false;
+    fetchMe(token)
+      .then((me) => {
+        if (!isCancelled) {
+          setUser(me);
+        }
+      })
+      .catch((error) => {
+        // A 401 is handled by the unauthorized event; anything else is a connection problem.
+        if (!isCancelled && error?.status !== 401) {
+          setLoadError(error instanceof Error ? error.message : "Could not load your account.");
+        }
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [token, user, reloadToken]);
 
-    setError("Invalid username or password.");
+  const handleAuthenticated = (result: AuthResult) => {
+    setUser(result.user);
+    setToken(result.token);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    localStorage.removeItem(USER_STORAGE_KEY);
-    notifySessionChange();
-    setError("");
+    if (token) {
+      // Best effort: the local session is cleared even if the server is unreachable.
+      logout(token).catch(() => {});
+    }
+    clearSession();
   };
 
-  if (currentUser === undefined) {
+  if (token === undefined) {
     return null;
   }
 
-  if (currentUser === null) {
+  if (!token) {
+    return <AuthScreen onAuthenticated={handleAuthenticated} />;
+  }
+
+  if (!user) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-lg items-center px-6">
-        <section className="w-full rounded-3xl border border-[var(--stroke)] bg-white p-8 shadow-[var(--shadow)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">
-            Project Management MVP
-          </p>
-          <h1 className="mt-3 font-display text-3xl font-semibold text-[var(--navy-dark)]">
-            Sign in
-          </h1>
-          <p className="mt-3 text-sm text-[var(--gray-text)]">
-            Use the demo credentials to access the Kanban board.
-          </p>
-
-          <form className="mt-8 space-y-4" onSubmit={handleLogin}>
-            <label className="block text-sm font-semibold text-[var(--navy-dark)]">
-              Username
-              <input
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-[var(--stroke)] px-3 py-2 text-sm outline-none transition focus:border-[var(--primary-blue)]"
-                autoComplete="username"
-                required
-              />
-            </label>
-            <label className="block text-sm font-semibold text-[var(--navy-dark)]">
-              Password
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-[var(--stroke)] px-3 py-2 text-sm outline-none transition focus:border-[var(--primary-blue)]"
-                autoComplete="current-password"
-                required
-              />
-            </label>
-
-            {error ? (
-              <p role="alert" className="text-sm font-medium text-red-700">
-                {error}
-              </p>
-            ) : null}
-
-            <button
-              type="submit"
-              className="w-full rounded-full bg-[var(--secondary-purple)] px-4 py-3 text-sm font-semibold uppercase tracking-[0.08em] text-white transition hover:brightness-110"
+      <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col items-center justify-center gap-4 px-6">
+        <p className="text-sm font-semibold uppercase tracking-[0.1em] text-[var(--gray-text)]">
+          {loadError ?? "Loading..."}
+        </p>
+        {loadError ? (
+          <div className="flex gap-2">
+            <PrimaryButton
+              onClick={() => {
+                setLoadError(null);
+                setReloadToken((current) => current + 1);
+              }}
             >
-              Sign in
-            </button>
-          </form>
-        </section>
+              Retry
+            </PrimaryButton>
+            <SecondaryButton onClick={clearSession}>Sign out</SecondaryButton>
+          </div>
+        ) : null}
       </main>
     );
   }
 
-  return <KanbanBoard username={currentUser} onLogout={handleLogout} />;
+  return <Workspace token={token} user={user} onUserChange={setUser} onLogout={handleLogout} />;
 };

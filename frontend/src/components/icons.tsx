@@ -43,3 +43,15 @@ export const LogOutIcon = () => (
     <path d="M16 17l5-5-5-5M21 12H9" />
   </Icon>
 );
+
+export const ChevronLeftIcon = () => (
+  <Icon>
+    <path d="M15 18l-6-6 6-6" />
+  </Icon>
+);
+
+export const ChevronRightIcon = () => (
+  <Icon>
+    <path d="M9 18l6-6-6-6" />
+  </Icon>
+);

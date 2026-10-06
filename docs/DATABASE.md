@@ -1,112 +1,90 @@
-# Database design for Part 5
+# Database design
 
-This document defines the SQLite model for the MVP and the implementation rules for Parts 6-7.
+SQLite, accessed with the stdlib `sqlite3` module from [backend/app/db.py](../backend/app/db.py).
 
-## Goals
+## File location
 
-- Support multiple users in schema design.
-- Enforce one Kanban board per user for MVP.
-- Store the full board as JSON for simple persistence and easy evolution.
-- Create the DB automatically if missing.
+- default: `backend/data/pm.db` (in Docker: the `pm-data` volume)
+- override: environment variable `PM_DB_PATH` (tests use a temporary file)
 
-## SQLite file location
+Startup creates the parent directory, the file, and the schema if missing.
 
-Backend will use:
-
-- default DB path: `backend/data/pm.db`
-- optional override: environment variable `PM_DB_PATH`
-
-If the file or parent directory does not exist, backend startup should create both.
-
-## Schema (SQL)
+## Schema (version 2)
 
 ```sql
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT NOT NULL UNIQUE,
+  username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  display_name TEXT NOT NULL DEFAULT '',
+  password_hash TEXT NOT NULL DEFAULT '',      -- scrypt$<salt hex>$<hash hex>
+  is_admin INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS boards (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL UNIQUE,
-  board_json TEXT NOT NULL,
-  schema_version INTEGER NOT NULL DEFAULT 1,
+CREATE TABLE sessions (
+  token_hash TEXT PRIMARY KEY,                 -- sha256 of the bearer token
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  expires_at TEXT NOT NULL                     -- 30 days after creation
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE TABLE boards (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  board_json TEXT NOT NULL,
+  schema_version INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE board_members (
+  board_id INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('editor', 'viewer')),
+  PRIMARY KEY (board_id, user_id)
+);
 ```
 
 Notes:
-- `users.username` is unique.
-- `boards.user_id` is unique, which enforces one board per user.
-- `board_json` stores canonical board state JSON.
-- `schema_version` supports future payload upgrades.
+- Usernames are unique case-insensitively.
+- A user may own any number of boards. The owner is not stored in `board_members`; a user's role on a board is `owner` if they own it, otherwise their `board_members.role`.
+- Deleting a user deletes their sessions, the boards they own, and their memberships.
+- On a fresh database, the admin user `user` / `password` is seeded with one demo board ("My first board").
 
-## Board JSON shape (v1)
-
-`board_json` stores this object:
+## Board JSON (`schemaVersion: 2`)
 
 ```json
 {
-  "schemaVersion": 1,
-  "columns": [
-    { "id": "col-backlog", "title": "Backlog", "cardIds": ["card-1"] }
-  ],
+  "schemaVersion": 2,
+  "columns": [{ "id": "col-backlog", "title": "Backlog", "cardIds": ["card-1"] }],
   "cards": {
     "card-1": {
       "id": "card-1",
       "title": "Example card",
-      "details": "Example details"
+      "details": "",
+      "priority": "high",
+      "dueDate": "2026-12-01",
+      "labels": ["planning"],
+      "assignee": "user"
     }
   }
 }
 ```
 
-### v1 constraints
+Validation (`BoardPayload` in [backend/app/schemas.py](../backend/app/schemas.py)):
+- 1 to 12 columns with unique ids; titles 1-60 characters.
+- every card is referenced by exactly one column, and each `cards` key equals the card id.
+- `priority` is `null`, `low`, `medium` or `high`; `dueDate` is `null` or `YYYY-MM-DD`.
+- up to 10 unique labels of 1-30 characters.
+- `assignee` is a username or `null` (not checked against members, so removing a member keeps old assignments readable).
 
-- `schemaVersion` must be `1`.
-- `columns` is an ordered array.
-- each column has `id`, `title`, and ordered `cardIds`.
-- `cards` is a dictionary keyed by card ID.
-- every ID in `cardIds` must exist in `cards`.
-- every card should be referenced exactly once across all columns.
+## Migrations
 
-## Startup and creation flow
+`PRAGMA user_version` holds the schema version.
 
-On backend startup:
+- `1`: original MVP (one board per user, no passwords).
+- `2`: `migrate_v1_to_v2` renames the old tables, creates the v2 schema, copies users, gives `user` the password `password` and admin rights, copies each board as "My first board" upgraded to board JSON v2, then drops the old tables.
 
-1. Resolve DB path (`PM_DB_PATH` or default).
-2. Ensure parent directory exists.
-3. Open SQLite connection.
-4. Enable `PRAGMA foreign_keys = ON`.
-5. Run `CREATE TABLE IF NOT EXISTS` statements.
-6. Ensure MVP user row exists for `username='user'`.
-7. Ensure this user has one board row initialized with default board JSON.
-
-This guarantees first run from an empty filesystem becomes usable with no manual DB step.
-
-## Migration strategy
-
-Use SQLite `PRAGMA user_version` as schema migration version.
-
-- `user_version = 1`: initial schema above.
-- Future migrations:
-  - add SQL migration scripts in version order
-  - run them in a transaction
-  - bump `user_version`
-- If `board_json.schemaVersion` needs to evolve, migrate payloads in code during read/write path.
-
-For MVP, no external migration framework is required.
-
-## Why this model
-
-- Simple and stable persistence boundary (`board_json`).
-- Works with current frontend board structure.
-- Keeps SQL constraints where they matter (`one board per user`, foreign keys, uniqueness).
-- Leaves room to normalize cards/columns later without blocking MVP delivery.
+To add a migration: bump `DB_VERSION`, add a `migrate_vN_to_vN+1` function, and call it from `initialize_database`.

@@ -2,43 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PM MVP - Part 2</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 2rem;
-        color: #032147;
-      }
-      h1 {
-        margin-bottom: 0.5rem;
-      }
-      pre {
-        padding: 1rem;
-        background: #f4f6fb;
-        border: 1px solid #dce3f0;
-      }
-    </style>
+    <title>PM</title>
   </head>
   <body>
-    <h1>Hello from PM MVP scaffolding</h1>
-    <p>This page is served by FastAPI at <code>/</code>.</p>
-    <p>API response from <code>/api/hello</code>:</p>
-    <pre id="result">Loading...</pre>
-
-    <script>
-      async function loadHello() {
-        const result = document.getElementById("result");
-        try {
-          const response = await fetch("/api/hello");
-          const payload = await response.json();
-          result.textContent = JSON.stringify(payload, null, 2);
-        } catch (error) {
-          result.textContent = "Request failed: " + error;
-        }
-      }
-
-      loadHello();
-    </script>
+    <p>Placeholder. The Docker build replaces this file with the exported frontend.</p>
   </body>
 </html>

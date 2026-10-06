@@ -202,6 +202,55 @@ This plan is execution-oriented. Each part contains:
 - AI can update board through structured output path end-to-end.
 - User sees board refresh automatically after AI-driven changes.
 
+## Part 11: Real accounts and user management
+
+### Checklist
+- [x] Password-based accounts (stdlib scrypt hashes) and bearer-token sessions replace the `X-User` header.
+- [x] Register, login, logout, current user, update display name, change password.
+- [x] Admin user management: list, create, update (display name, admin flag, password reset), delete. Admins cannot demote or delete themselves.
+- [x] Seed user `user` / `password` is an admin.
+- [x] Frontend sign-in and registration against the API; account settings page; admin users page.
+
+## Part 12: Multiple boards per user
+
+### Checklist
+- [x] DB migration v1 -> v2 (`PRAGMA user_version`): boards get `owner_id`, `name`, `description`; one-board-per-user constraint removed; existing data preserved.
+- [x] Board CRUD API under `/api/boards` and AI chat under `/api/boards/{id}/ai/chat`.
+- [x] Frontend board list sidebar: create, rename, delete, switch boards; last selected board remembered.
+
+## Part 13: Richer boards and cards
+
+### Checklist
+- [x] Board JSON `schemaVersion: 2`: cards gain `priority`, `dueDate`, `labels`; v1 boards migrated.
+- [x] Columns are editable: add, rename, delete (only empty columns), reorder (move left/right buttons).
+- [x] Card editor for priority, due date, labels; cards show badges and overdue state.
+- [x] Board search and filters (text, priority, label).
+
+## Part 14: Collaboration
+
+### Checklist
+- [x] Share a board with other users as `editor` or `viewer`; owner manages members.
+- [x] Viewers get a read-only board; API enforces roles.
+- [x] Card assignee chosen from board members.
+
+## Part 15: Full-stack integration tests
+
+### Checklist
+- [x] Playwright project that builds the static frontend and runs it against a real backend with a temporary DB (no API mocks).
+- [x] Covers register, login, board CRUD, card edits persisting across reload, sharing.
+
+## Part 16: My work overview
+
+### Checklist
+- [ ] `GET /api/me/cards`: cards assigned to the current user across all accessible boards, with board and column names.
+- [ ] "My work" view: assigned cards grouped by overdue / due soon / no date, linking to their board.
+
+## Part 17: Card comments and checklists
+
+### Checklist
+- [ ] Cards gain a checklist (`checklist: [{id, text, done}]`) shown as progress on the card.
+- [ ] Card comments stored in a `card_comments` table (board id, card id, author, body, created_at) with list/add/delete API; deleting a card removes its comments.
+
 ## Global sequencing and quality gates
 
 ### Dependencies
@@ -213,16 +262,20 @@ This plan is execution-oriented. Each part contains:
 ## Confirmed design decisions
 
 - Frontend delivery: Next.js app is statically exported and served by FastAPI from `/`.
-- Authentication model (MVP): client-side login with hardcoded credentials (`user` / `password`), with frontend session state in localStorage.
-- Backend board authorization contract: board API requires `X-User` header; current MVP board operations target `user`.
-- Persistence model: SQLite with one board per user (`UNIQUE(user_id)`), board stored as JSON with `schemaVersion: 1`.
+- (Superseded by Part 11) Authentication model (MVP): client-side login with hardcoded credentials (`user` / `password`).
+- (Superseded by Part 11) Backend board authorization contract: board API required `X-User` header.
+- (Superseded by Part 12) Persistence model: SQLite with one board per user, board JSON `schemaVersion: 1`.
 - Startup bootstrap: backend auto-creates DB file/schema, ensures default user and default board exist.
 - Frontend persistence strategy: load board via `GET /api/board` and persist edits via `PUT /api/board` for rename/add/edit/delete/move. Saves are serialized (one request in flight; only the newest pending board is sent next). Column rename saves on blur/Enter, not per keystroke.
 - UX state decisions: explicit loading, saving, error, and retry states for board fetch/save; a failed save shows "Unsaved changes" with a retry-save button.
-- Fixed columns: the backend rejects board updates (user `PUT` -> 422, AI update -> 502) that change column ids or order.
+- (Superseded by Part 13) Fixed columns: the backend rejected board updates that changed column ids or order.
 - AI chat contract: frontend sends `prompt` plus earlier `history`; backend sends system prompt (with board JSON and shape rules) + history + prompt to OpenRouter and expects JSON `{message, boardUpdate}`. OpenRouter `response_format: json_schema` was tried and rejected: with `gpt-oss-120b` it produced invalid output and took ~2 minutes versus ~3-20s without it. Upstream timeout is 90s.
 - Chat/board consistency: pending saves complete before a chat request is sent, and the board is read-only while a chat request is in flight.
 - Drag-and-drop collision behavior: `pointerWithin` is used first (with `closestCorners` fallback) to support dropping cards into empty columns reliably.
+
+- Accounts (Part 11): bearer tokens in localStorage, sessions in SQLite. Deleting a user deletes their boards. Admins cannot demote or delete themselves.
+- Boards (Parts 12-14): access is owner/editor/viewer; inaccessible boards return 404. Board JSON v2 is still saved as a whole (`PUT /api/boards/{id}/data`). Columns are no longer fixed. Assignees are usernames and are not validated against membership.
+- Testing (Part 15): e2e runs the static build on the real backend with a temporary DB; only the AI chat call is mocked. Unit tests mock `@/lib/api`.
 
 ### Quality gates per part
 - [ ] Relevant tests for the part pass.

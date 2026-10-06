@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import clsx from "clsx";
 import {
   DndContext,
@@ -16,26 +16,69 @@ import {
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { AIChatSidebar } from "@/components/AIChatSidebar";
-import { LogOutIcon } from "@/components/icons";
+import { BoardFilters } from "@/components/BoardFilters";
+import { BoardMembers } from "@/components/BoardMembers";
+import { PlusIcon } from "@/components/icons";
+import { DangerButton, ErrorText, errorText, SecondaryButton } from "@/components/ui";
 import {
+  deleteBoard,
   fetchBoard,
+  listMembers,
+  removeMember,
+  saveBoardData,
   sendAIChat,
-  updateBoard,
+  updateBoardMeta,
   type AIChatMessage,
-} from "@/lib/boardApi";
-import { createId, moveCard, type BoardData } from "@/lib/kanban";
+  type BoardSummary,
+  type Member,
+  type User,
+} from "@/lib/api";
+import {
+  addCard,
+  addColumn,
+  deleteCard,
+  EMPTY_FILTER,
+  isFilterActive,
+  matchesFilter,
+  moveCard,
+  removeColumn,
+  renameColumn,
+  shiftColumn,
+  updateCard,
+  type BoardData,
+  type CardFields,
+  type CardFilter,
+} from "@/lib/kanban";
 
 type KanbanBoardProps = {
-  username: string;
-  onLogout: () => void;
+  token: string;
+  boardId: number;
+  currentUser: User;
+  onBoardsChanged: () => Promise<void>;
 };
 
-export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
+const CHAT_STORAGE_KEY = "pm-chat-open";
+
+const collisionDetectionStrategy = (args: Parameters<typeof closestCorners>[0]) => {
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) {
+    return pointerCollisions;
+  }
+  return closestCorners(args);
+};
+
+export const KanbanBoard = ({ token, boardId, currentUser, onBoardsChanged }: KanbanBoardProps) => {
+  const [meta, setMeta] = useState<BoardSummary | null>(null);
   const [board, setBoard] = useState<BoardData | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "failed">("saved");
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<CardFilter>(EMPTY_FILTER);
+  const [showMembers, setShowMembers] = useState(false);
+  const [showChat, setShowChat] = useState(() => localStorage.getItem(CHAT_STORAGE_KEY) !== "false");
+  const [newColumnTitle, setNewColumnTitle] = useState("");
   const [chatMessages, setChatMessages] = useState<AIChatMessage[]>([]);
   const [isChatSending, setIsChatSending] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -51,19 +94,18 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
     setIsLoading(true);
     setError(null);
 
-    fetchBoard(username)
-      .then((payload) => {
+    Promise.all([fetchBoard(token, boardId), listMembers(token, boardId)])
+      .then(([detail, boardMembers]) => {
         if (!isCancelled) {
-          setBoard(payload);
+          const { data, ...summary } = detail;
+          setMeta(summary);
+          setBoard(data);
+          setMembers(boardMembers);
         }
       })
       .catch((loadError) => {
         if (!isCancelled) {
-          const message =
-            loadError instanceof Error
-              ? loadError.message
-              : "Failed to load board.";
-          setError(message);
+          setError(errorText(loadError, "Failed to load board."));
           setBoard(null);
         }
       })
@@ -76,23 +118,13 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
     return () => {
       isCancelled = true;
     };
-  }, [username, reloadToken]);
+  }, [token, boardId, reloadToken]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
     })
   );
-
-  const cardsById = useMemo(() => board?.cards ?? {}, [board?.cards]);
-
-  const collisionDetectionStrategy = (args: Parameters<typeof closestCorners>[0]) => {
-    const pointerCollisions = pointerWithin(args);
-    if (pointerCollisions.length > 0) {
-      return pointerCollisions;
-    }
-    return closestCorners(args);
-  };
 
   const flushSaves = async (): Promise<boolean> => {
     isFlushing.current = true;
@@ -101,19 +133,16 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
         const nextBoard = pendingBoard.current;
         pendingBoard.current = null;
         try {
-          await updateBoard(username, nextBoard);
+          await saveBoardData(token, boardId, nextBoard);
         } catch (saveError) {
           pendingBoard.current ??= nextBoard;
-          setError(
-            saveError instanceof Error
-              ? saveError.message
-              : "Could not save board changes."
-          );
+          setError(errorText(saveError, "Could not save board changes."));
           setSaveStatus("failed");
           return false;
         }
       }
       setSaveStatus("saved");
+      void onBoardsChanged();
       return true;
     } finally {
       isFlushing.current = false;
@@ -162,61 +191,55 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
     }));
   };
 
-  const handleRenameColumn = (columnId: string, title: string) => {
-    applyBoardChange((prev) => ({
-      ...prev,
-      columns: prev.columns.map((column) =>
-        column.id === columnId ? { ...column, title } : column
-      ),
-    }));
+  const handleAddColumn = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const title = newColumnTitle.trim();
+    if (!title) {
+      return;
+    }
+    applyBoardChange((prev) => addColumn(prev, title));
+    setNewColumnTitle("");
   };
 
-  const handleAddCard = (columnId: string, title: string, details: string) => {
-    const id = createId("card");
-    applyBoardChange((prev) => ({
-      ...prev,
-      cards: {
-        ...prev.cards,
-        [id]: { id, title, details: details || "No details yet." },
-      },
-      columns: prev.columns.map((column) =>
-        column.id === columnId
-          ? { ...column, cardIds: [...column.cardIds, id] }
-          : column
-      ),
-    }));
+  const toggleChat = () => {
+    localStorage.setItem(CHAT_STORAGE_KEY, String(!showChat));
+    setShowChat(!showChat);
   };
 
-  const handleEditCard = (cardId: string, title: string, details: string) => {
-    applyBoardChange((prev) => ({
-      ...prev,
-      cards: { ...prev.cards, [cardId]: { id: cardId, title, details } },
-    }));
+  const handleMetaChange = async (patch: { name?: string; description?: string }) => {
+    try {
+      setMeta(await updateBoardMeta(token, boardId, patch));
+      await onBoardsChanged();
+    } catch (metaError) {
+      setError(errorText(metaError, "Could not update the board."));
+    }
   };
 
-  const handleDeleteCard = (columnId: string, cardId: string) => {
-    applyBoardChange((prev) => {
-      return {
-        ...prev,
-        cards: Object.fromEntries(
-          Object.entries(prev.cards).filter(([id]) => id !== cardId)
-        ),
-        columns: prev.columns.map((column) =>
-          column.id === columnId
-            ? {
-                ...column,
-                cardIds: column.cardIds.filter((id) => id !== cardId),
-              }
-            : column
-        ),
-      };
-    });
+  const handleDeleteBoard = async () => {
+    if (!meta || !window.confirm(`Delete "${meta.name}" and all of its cards?`)) {
+      return;
+    }
+    try {
+      await deleteBoard(token, boardId);
+      await onBoardsChanged();
+    } catch (deleteError) {
+      setError(errorText(deleteError, "Could not delete the board."));
+    }
   };
 
-  const submitChatPrompt = async (
-    prompt: string,
-    options: { addUserMessage: boolean }
-  ) => {
+  const handleLeaveBoard = async () => {
+    if (!meta || !window.confirm(`Leave "${meta.name}"?`)) {
+      return;
+    }
+    try {
+      await removeMember(token, boardId, currentUser.username);
+      await onBoardsChanged();
+    } catch (leaveError) {
+      setError(errorText(leaveError, "Could not leave the board."));
+    }
+  };
+
+  const submitChatPrompt = async (prompt: string, options: { addUserMessage: boolean }) => {
     if (!board) {
       return;
     }
@@ -243,126 +266,172 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
       if (!(await savesDone.current)) {
         throw new Error("Board changes are not saved. Retry the save, then resend.");
       }
-      const result = await sendAIChat(username, trimmedPrompt, history);
-      setChatMessages((current) => [
-        ...current,
-        { role: "assistant", content: result.message },
-      ]);
+      const result = await sendAIChat(token, boardId, trimmedPrompt, history);
+      setChatMessages((current) => [...current, { role: "assistant", content: result.message }]);
       if (result.boardUpdate) {
         setBoard(result.boardUpdate);
         setError(null);
+        void onBoardsChanged();
       }
     } catch (chatRequestError) {
-      const message =
-        chatRequestError instanceof Error
-          ? chatRequestError.message
-          : "Could not send chat request.";
-      setChatError(message);
+      setChatError(errorText(chatRequestError, "Could not send chat request."));
     } finally {
       setIsChatSending(false);
     }
   };
 
-  const handleSendChat = async (prompt: string) => {
-    await submitChatPrompt(prompt, { addUserMessage: true });
-  };
-
-  const handleRetryChat = async () => {
-    if (!lastChatPrompt) {
-      return;
-    }
-    await submitChatPrompt(lastChatPrompt, { addUserMessage: false });
-  };
-
   if (isLoading) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-6">
-        <p className="text-sm font-semibold uppercase tracking-[0.1em] text-[var(--gray-text)]">
-          Loading board...
-        </p>
-      </main>
+      <p className="py-10 text-center text-sm font-semibold uppercase tracking-[0.1em] text-[var(--gray-text)]">
+        Loading board...
+      </p>
     );
   }
 
-  if (!board) {
+  if (!board || !meta) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-3xl items-center justify-center px-6">
-        <div className="rounded-2xl border border-[var(--stroke)] bg-white p-8 text-center shadow-[var(--shadow)]">
-          <p className="text-sm font-semibold text-[var(--navy-dark)]">
-            {error ?? "Board is unavailable."}
-          </p>
-          <button
-            type="button"
-            onClick={() => setReloadToken((current) => current + 1)}
-            className="mt-4 rounded-lg bg-[var(--secondary-purple)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:brightness-110"
-          >
-            Retry
-          </button>
-        </div>
-      </main>
+      <div className="rounded-2xl border border-[var(--stroke)] bg-white p-8 text-center shadow-[var(--shadow)]">
+        <p className="text-sm font-semibold text-[var(--navy-dark)]">{error ?? "Board is unavailable."}</p>
+        <SecondaryButton className="mt-4" onClick={() => setReloadToken((current) => current + 1)}>
+          Retry
+        </SecondaryButton>
+      </div>
     );
   }
 
-  const activeCard = activeCardId ? cardsById[activeCardId] : null;
+  const readOnly = meta.role === "viewer";
+  const chatVisible = !readOnly && showChat;
+  const filterActive = isFilterActive(filter);
+  const activeCard = activeCardId ? board.cards[activeCardId] : null;
+  const memberNames = members.map((member) => member.username);
+
+  const columnCallbacks = {
+    onRename: (columnId: string, title: string) =>
+      applyBoardChange((prev) => renameColumn(prev, columnId, title)),
+    onAddCard: (columnId: string, fields: CardFields) =>
+      applyBoardChange((prev) => addCard(prev, columnId, fields)),
+    onEditCard: (cardId: string, fields: CardFields) =>
+      applyBoardChange((prev) => updateCard(prev, cardId, fields)),
+    onDeleteCard: (cardId: string) => applyBoardChange((prev) => deleteCard(prev, cardId)),
+    onDelete: (columnId: string) => applyBoardChange((prev) => removeColumn(prev, columnId)),
+    onMove: (columnId: string, offset: -1 | 1) =>
+      applyBoardChange((prev) => shiftColumn(prev, columnId, offset)),
+  };
 
   return (
-    <main className="flex min-h-screen flex-col gap-4 px-4 py-4 sm:px-6">
-      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 rounded-2xl border border-[var(--stroke)] bg-white px-5 py-3 shadow-[var(--shadow)]">
-        <div className="flex items-baseline gap-4">
-          <h1 className="font-display text-2xl font-semibold text-[var(--navy-dark)]">
-            Kanban Studio
-          </h1>
-          <p className="hidden text-sm text-[var(--gray-text)] md:block">
-            Drag cards between stages, click a column title to rename it.
-          </p>
+    <div className="flex flex-col gap-4">
+      <section className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-[var(--stroke)] bg-white px-5 py-3 shadow-[var(--shadow)]">
+        <div className="min-w-0 flex-1">
+          {readOnly ? (
+            <h2 className="font-display text-xl font-semibold text-[var(--navy-dark)]">{meta.name}</h2>
+          ) : (
+            <input
+              key={`name-${meta.name}`}
+              defaultValue={meta.name}
+              aria-label="Board name"
+              maxLength={80}
+              onBlur={(event) => {
+                const name = event.target.value.trim();
+                if (!name) {
+                  event.target.value = meta.name;
+                } else if (name !== meta.name) {
+                  void handleMetaChange({ name });
+                }
+              }}
+              onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+              className="w-full rounded-md bg-transparent px-1 font-display text-xl font-semibold text-[var(--navy-dark)] outline-none hover:bg-[var(--surface)] focus:ring-2 focus:ring-[var(--primary-blue)]"
+            />
+          )}
+          {readOnly ? (
+            meta.description ? (
+              <p className="mt-1 text-sm text-[var(--gray-text)]">{meta.description}</p>
+            ) : null
+          ) : (
+            <input
+              key={`description-${meta.description}`}
+              defaultValue={meta.description}
+              aria-label="Board description"
+              placeholder="Add a description"
+              maxLength={500}
+              onBlur={(event) => {
+                const description = event.target.value.trim();
+                if (description !== meta.description) {
+                  void handleMetaChange({ description });
+                }
+              }}
+              onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+              className="mt-1 w-full rounded-md bg-transparent px-1 text-sm text-[var(--gray-text)] outline-none hover:bg-[var(--surface)] focus:ring-2 focus:ring-[var(--primary-blue)]"
+            />
+          )}
         </div>
-        <div className="flex items-center gap-3">
-          <span
-            className={clsx(
-              "flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.15em]",
-              saveStatus === "failed" ? "text-red-700" : "text-[var(--gray-text)]"
-            )}
-          >
+        <div className="flex flex-wrap items-center gap-2">
+          {readOnly ? (
+            <span className="rounded-full bg-[var(--surface-column)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.1em] text-[var(--gray-text)]">
+              Read only
+            </span>
+          ) : (
             <span
               className={clsx(
-                "h-2 w-2 rounded-full",
-                saveStatus === "saved" && "bg-emerald-500",
-                saveStatus === "saving" && "bg-[var(--accent-yellow)]",
-                saveStatus === "failed" && "bg-red-600"
+                "flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.15em]",
+                saveStatus === "failed" ? "text-red-700" : "text-[var(--gray-text)]"
               )}
-            />
-            {saveStatus === "saving"
-              ? "Saving..."
-              : saveStatus === "failed"
-                ? "Unsaved changes"
-                : "All changes saved"}
-          </span>
-          <button
-            type="button"
-            onClick={onLogout}
-            className="flex items-center gap-2 rounded-lg border border-[var(--stroke-strong)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--navy-dark)] transition hover:border-[var(--primary-blue)] hover:text-[var(--primary-blue)]"
-          >
-            <LogOutIcon />
-            Log out
-          </button>
+            >
+              <span
+                className={clsx(
+                  "h-2 w-2 rounded-full",
+                  saveStatus === "saved" && "bg-emerald-500",
+                  saveStatus === "saving" && "bg-[var(--accent-yellow)]",
+                  saveStatus === "failed" && "bg-red-600"
+                )}
+              />
+              {saveStatus === "saving"
+                ? "Saving..."
+                : saveStatus === "failed"
+                  ? "Unsaved changes"
+                  : "All changes saved"}
+            </span>
+          )}
+          {readOnly ? null : (
+            <SecondaryButton onClick={toggleChat} aria-pressed={showChat}>
+              AI assistant
+            </SecondaryButton>
+          )}
+          <SecondaryButton onClick={() => setShowMembers((current) => !current)} aria-expanded={showMembers}>
+            {meta.role === "owner" ? "Share" : "Members"} ({members.length})
+          </SecondaryButton>
+          {meta.role === "owner" ? (
+            <DangerButton onClick={() => void handleDeleteBoard()}>Delete board</DangerButton>
+          ) : (
+            <DangerButton onClick={() => void handleLeaveBoard()}>Leave board</DangerButton>
+          )}
         </div>
         {error ? (
           <div className="flex w-full flex-wrap items-center gap-3">
-            <p className="text-sm font-semibold text-red-700">{error}</p>
+            <ErrorText>{error}</ErrorText>
             {saveStatus === "failed" ? (
-              <button
-                type="button"
-                onClick={handleRetrySave}
-                className="rounded-lg border border-red-300 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-red-700 transition hover:bg-red-100"
-              >
-                Retry save
-              </button>
+              <DangerButton onClick={handleRetrySave}>Retry save</DangerButton>
             ) : null}
           </div>
         ) : null}
-      </header>
+        {showMembers ? (
+          <BoardMembers
+            token={token}
+            boardId={boardId}
+            members={members}
+            canManage={meta.role === "owner"}
+            onMembersChange={setMembers}
+          />
+        ) : null}
+      </section>
 
-      <div className="grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+      <BoardFilters board={board} members={memberNames} filter={filter} onChange={setFilter} />
+
+      <div
+        className={clsx(
+          "grid flex-1 gap-4",
+          chatVisible && "xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_340px]"
+        )}
+      >
         <DndContext
           sensors={sensors}
           collisionDetection={collisionDetectionStrategy}
@@ -372,22 +441,51 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
           {/* Read-only while the AI works, so its board update cannot drop edits made meanwhile. */}
           <section
             className={clsx(
-              "grid auto-cols-[minmax(240px,1fr)] grid-flow-col lg:auto-cols-[minmax(180px,1fr)] gap-3 overflow-x-auto pb-2",
+              "grid auto-cols-[minmax(240px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2 lg:auto-cols-[minmax(200px,1fr)]",
               isChatSending && "pointer-events-none opacity-70"
             )}
             aria-busy={isChatSending}
           >
-            {board.columns.map((column) => (
+            {board.columns.map((column, index) => (
               <KanbanColumn
                 key={column.id}
                 column={column}
-                cards={column.cardIds.map((cardId) => board.cards[cardId])}
-                onRename={handleRenameColumn}
-                onAddCard={handleAddCard}
-                onEditCard={handleEditCard}
-                onDeleteCard={handleDeleteCard}
+                cards={column.cardIds
+                  .map((cardId) => board.cards[cardId])
+                  .filter((card) => matchesFilter(card, filter))}
+                totalCards={column.cardIds.length}
+                readOnly={readOnly}
+                // Reordering a filtered list would put cards in surprising places.
+                dragDisabled={readOnly || filterActive}
+                canMoveLeft={index > 0}
+                canMoveRight={index < board.columns.length - 1}
+                members={memberNames}
+                {...columnCallbacks}
               />
             ))}
+            {readOnly ? null : (
+              <form
+                onSubmit={handleAddColumn}
+                className="flex h-fit flex-col gap-2 rounded-2xl border-2 border-dashed border-[var(--stroke-strong)] p-3"
+              >
+                <input
+                  value={newColumnTitle}
+                  onChange={(event) => setNewColumnTitle(event.target.value)}
+                  placeholder="New column"
+                  aria-label="New column title"
+                  maxLength={60}
+                  className="rounded-lg border border-[var(--stroke-strong)] bg-white px-2.5 py-1.5 text-sm outline-none focus:border-[var(--primary-blue)]"
+                />
+                <button
+                  type="submit"
+                  disabled={!newColumnTitle.trim() || board.columns.length >= 12}
+                  className="flex items-center justify-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium text-[var(--gray-text)] transition enabled:hover:bg-white enabled:hover:text-[var(--primary-blue)] disabled:opacity-50"
+                >
+                  <PlusIcon />
+                  Add column
+                </button>
+              </form>
+            )}
           </section>
           <DragOverlay>
             {activeCard ? (
@@ -398,14 +496,20 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
           </DragOverlay>
         </DndContext>
 
-        <AIChatSidebar
-          messages={chatMessages}
-          isSending={isChatSending}
-          error={chatError}
-          onSend={handleSendChat}
-          onRetry={handleRetryChat}
-        />
+        {chatVisible ? (
+          <AIChatSidebar
+            messages={chatMessages}
+            isSending={isChatSending}
+            error={chatError}
+            onSend={(prompt) => submitChatPrompt(prompt, { addUserMessage: true })}
+            onRetry={async () => {
+              if (lastChatPrompt) {
+                await submitChatPrompt(lastChatPrompt, { addUserMessage: false });
+              }
+            }}
+          />
+        ) : null}
       </div>
-    </main>
+    </div>
   );
 };

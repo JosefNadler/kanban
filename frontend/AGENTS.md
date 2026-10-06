@@ -1,106 +1,31 @@
 # Frontend code guide
 
-This document describes the frontend implementation in [frontend/](/home/josef/Projects/pm/frontend).
+Next.js (App Router, static export), React, TypeScript, Tailwind CSS v4, dnd-kit. Vitest + Testing Library for unit tests, Playwright for full-stack e2e tests.
 
-## Stack
+## Structure
 
-- Next.js (App Router) with React and TypeScript
-- Tailwind CSS v4
-- dnd-kit for drag and drop
-- Vitest + Testing Library for unit tests
-- Playwright for end-to-end tests
+- [src/app/page.tsx](./src/app/page.tsx) renders `AppShell`; [globals.css](./src/app/globals.css) holds the color variables.
+- [src/lib/api.ts](./src/lib/api.ts): typed client for every backend endpoint. Sends `Authorization: Bearer <token>`, throws `ApiError` (with `status`) using the backend `detail`, and dispatches the `pm-unauthorized` window event on a 401 for an authenticated request.
+- [src/lib/kanban.ts](./src/lib/kanban.ts): board types (mirror of backend `BoardPayload`) and pure helpers: `moveCard`, card and column operations, filters, `isOverdue`, `parseLabels`.
+- [src/lib/kanban-fixture.json](./src/lib/kanban-fixture.json): the backend seed board (`default_board_payload()`), used by unit and e2e tests. Regenerate it when the seed changes.
 
-## Entry points
+## Components
 
-- [src/app/layout.tsx](/home/josef/Projects/pm/frontend/src/app/layout.tsx): root layout, fonts, metadata, and global CSS import.
-- [src/app/page.tsx](/home/josef/Projects/pm/frontend/src/app/page.tsx): renders the app shell.
-- [src/app/globals.css](/home/josef/Projects/pm/frontend/src/app/globals.css): app-wide styles and color variables.
+- `AppShell`: session. Token in localStorage `pm-token`; loads `/api/auth/me`; clears the session on `pm-unauthorized`. Shows `AuthScreen` (sign in / create account) or `Workspace`.
+- `Workspace`: header with navigation (Boards, Account, Users for admins), `BoardList` sidebar (create and select boards; the selected board is remembered per user in `pm-board-<username>`), and the active view.
+- `KanbanBoard`: one board. Loads board + members, owns board state and the dnd-kit context, serializes saves (one `PUT` in flight; newest pending board sent next), and shows save/error/retry states. Board header: inline name/description editing, AI assistant toggle (`pm-chat-open`), share/members panel (`BoardMembers`), delete (owner) or leave (member). Viewers get a read-only board without the AI chat. Dragging is disabled while a filter is active.
+- `KanbanColumn` (rename, move left/right, delete when empty), `KanbanCard`, `CardForm` (title, details, priority, due date, labels, assignee), `CardMeta` (badges), `BoardFilters`, `AIChatSidebar`.
+- `AccountSettings` (display name, password) and `UserAdmin` (admin user management).
+- `ui.tsx`: shared buttons, field, panel and error text styles.
 
-## Main UI components
-
-- [src/components/AppShell.tsx](/home/josef/Projects/pm/frontend/src/components/AppShell.tsx)
-  - login gate shown before board access
-  - hardcoded credential check (`user` / `password`)
-  - localStorage-backed auth session (`pm-authenticated`)
-  - logout handler (passed to `KanbanBoard`, whose header renders the button) that clears auth and returns to sign-in
-- [src/components/KanbanBoard.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanBoard.tsx)
-  - loads board state from backend API (`GET /api/board`)
-  - persists board updates to backend API (`PUT /api/board`)
-  - hosts AI chat sidebar and sends chat prompts to backend (`POST /api/ai/chat`)
-  - applies `boardUpdate` payloads returned by AI responses
-  - wires drag-and-drop context
-  - handles column rename, add card, edit card, delete card, and move card
-  - serializes saves (one `PUT` in flight; newest pending board sent next) and shows retry on failed save
-  - waits for pending saves before sending a chat prompt and makes the board read-only while chat is in flight
-  - renders a compact header (title, save status, logout) and five columns in a horizontal row that fills the width and scrolls horizontally when narrow; the chat sidebar sits to the right on wide screens and below the board otherwise
-  - displays loading, saving, and error states
-- [src/components/AIChatSidebar.tsx](/home/josef/Projects/pm/frontend/src/components/AIChatSidebar.tsx)
-  - renders chat message history
-  - handles prompt input and submit/retry UI states
-  - surfaces AI request errors
-- [src/components/KanbanColumn.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanColumn.tsx)
-  - droppable column surface
-  - editable column title input (saves on blur/Enter; empty title reverts)
-  - sortable list of cards
-  - embeds new card form
-- [src/components/KanbanCard.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanCard.tsx)
-  - draggable card item with title/details, edit (inline form, drag disabled while editing) and delete as icon buttons (accessible names `Edit <title>` / `Delete <title>`)
-- [src/components/icons.tsx](/home/josef/Projects/pm/frontend/src/components/icons.tsx)
-  - inline SVG icons (pencil, trash, plus, log out)
-- [src/components/CardForm.tsx](/home/josef/Projects/pm/frontend/src/components/CardForm.tsx)
-  - title/details form shared by add and edit
-  - requires non-empty title
-  - optional details
-- [src/components/NewCardForm.tsx](/home/josef/Projects/pm/frontend/src/components/NewCardForm.tsx)
-  - toggleable add-card form built on `CardForm`
-- [src/components/KanbanCardPreview.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanCardPreview.tsx)
-  - drag overlay preview for active card
-
-## Data model and board logic
-
-- [src/lib/kanban.ts](/home/josef/Projects/pm/frontend/src/lib/kanban.ts)
-  - defines `Card`, `Column`, and `BoardData` types
-  - provides `moveCard` helper used by drag-and-drop handlers
-  - provides `createId` helper for new card IDs
-- [src/lib/kanban-fixture.json](/home/josef/Projects/pm/frontend/src/lib/kanban-fixture.json)
-  - seed board used by unit and e2e tests (mirrors backend default board)
-- [src/lib/boardApi.ts](/home/josef/Projects/pm/frontend/src/lib/boardApi.ts)
-  - wraps `/api/board` fetch and update calls
-  - wraps `/api/ai/chat` request/response
-  - sets required `X-User` header
-  - surfaces backend error details
-
-Current persistence behavior: board changes are persisted via backend API and survive page refresh.
-Current AI behavior: chat responses can optionally include a board update payload that is applied immediately.
+Tests rely on `data-testid` attributes (`column-<id>`, `card-<id>`, `board-members`, `user-row-<username>`, `current-user`) and on accessible names.
 
 ## Tests
 
-- Unit/component tests:
-  - [src/components/AppShell.test.tsx](/home/josef/Projects/pm/frontend/src/components/AppShell.test.tsx)
-  - [src/components/KanbanBoard.test.tsx](/home/josef/Projects/pm/frontend/src/components/KanbanBoard.test.tsx)
-  - [src/lib/boardApi.test.ts](/home/josef/Projects/pm/frontend/src/lib/boardApi.test.ts)
-  - [src/lib/kanban.test.ts](/home/josef/Projects/pm/frontend/src/lib/kanban.test.ts)
-- Test setup:
-  - [src/test/setup.ts](/home/josef/Projects/pm/frontend/src/test/setup.ts)
-  - [vitest.config.ts](/home/josef/Projects/pm/frontend/vitest.config.ts)
-- End-to-end tests:
-  - [tests/kanban.spec.ts](/home/josef/Projects/pm/frontend/tests/kanban.spec.ts)
-  - [playwright.config.ts](/home/josef/Projects/pm/frontend/playwright.config.ts)
+- Unit tests live next to the code (`*.test.ts[x]`) and mock `@/lib/api` with `vi.mock(..., importOriginal)`.
+- E2E tests in [tests/](./tests) run against the real stack: [tests/e2e-server.sh](./tests/e2e-server.sh) builds the static export and starts the FastAPI backend on port 8123 with a temporary DB (needs `uv`). Each test creates its own users via the API ([tests/support.ts](./tests/support.ts)). Only the AI chat endpoint is mocked with `page.route`.
 
 ## NPM scripts
 
-Defined in [package.json](/home/josef/Projects/pm/frontend/package.json):
-
-- `npm run dev`: start Next.js dev server
-- `npm run build`: production build
-- `npm run start`: run production server
-- `npm run lint`: lint source
-- `npm run test` / `npm run test:unit`: run unit tests
-- `npm run test:e2e`: run Playwright tests
-- `npm run test:all`: run unit and e2e tests
-
-## Notes for upcoming integration work
-
-- The app currently assumes a browser runtime (`"use client"` in board component).
-- Drag-and-drop behavior relies on card IDs and column IDs from the shared board shape.
-- `data-testid` attributes on columns/cards are used by tests and should be preserved or updated alongside tests.
+- `npm run dev`, `npm run build`, `npm run lint`
+- `npm run test` (unit), `npm run test:coverage`, `npm run test:e2e`, `npm run test:all`

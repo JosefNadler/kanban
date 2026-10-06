@@ -1,4 +1,5 @@
 import type { Card } from "@/lib/kanban";
+import { CardMeta } from "@/components/CardMeta";
 
 type KanbanCardPreviewProps = {
   card: Card;
@@ -9,8 +10,9 @@ export const KanbanCardPreview = ({ card }: KanbanCardPreviewProps) => (
     <h4 className="font-display text-sm font-semibold leading-5 text-[var(--navy-dark)]">
       {card.title}
     </h4>
-    <p className="mt-1.5 text-sm leading-5 text-[var(--gray-text)]">
-      {card.details}
-    </p>
+    {card.details ? (
+      <p className="mt-1.5 text-sm leading-5 text-[var(--gray-text)]">{card.details}</p>
+    ) : null}
+    <CardMeta card={card} />
   </article>
 );
